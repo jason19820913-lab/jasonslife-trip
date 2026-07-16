@@ -312,6 +312,10 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <button type="button" class="geo-btn" onclick="flightSearch()">✈️ 查航班</button>
       <div class="geo-hint" id="flightInfoHint" style="display:none;padding:8px 2px"></div>
     </div>
+    <div class="frow" id="flightTimeRow">
+      <div class="field"><label>🛫 起飛時間</label><input type="time" id="fDep"></div>
+      <div class="field"><label>🛬 降落時間（當地）</label><input type="time" id="fArr"></div>
+    </div>
     <div class="field" id="blogField" style="display:none"><label>📖 我的遊記</label>
       <div class="blog-chip"><span id="blogChipText"></span><button type="button" onclick="clearBlog()">✕</button></div>
     </div>
@@ -578,7 +582,7 @@ function renderPlan(){
         ${x.loc?`<div class="it-loc">📍 ${esc(x.loc)}</div>`:''}
         ${x.phone?`<div class="it-phone">📞 ${esc(x.phone)}</div>`:''}
         ${x.transit?`<div class="it-transit">🚇 ${esc(x.transit)}</div>`:''}
-        ${x.flight?`<div class="it-flight">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}</div>`:''}
+        ${x.flight?`<div class="it-flight">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}`:''}${x.arr?` → 🛬 ${esc(x.arr)}`:''}</div>`:''}
         ${x.blogUrl?`<div class="it-blog">📖 <a href="${esc(x.blogUrl)}" target="_blank" rel="noopener">${esc(x.blogTitle||'我的遊記')}</a></div>`:''}
         ${x.note?`<div class="it-note">📝 ${esc(x.note)}</div>`:''}
       </div>
@@ -827,7 +831,7 @@ async function flightSearch(){
       route=`${fr.airline&&fr.airline.name||''}｜${fr.origin.iata_code} ${fr.origin.municipality||''} → ${fr.destination.iata_code} ${fr.destination.municipality||''}`;
     }
   }catch(e){}
-  if(AERO_KEY){ // 2. AeroDataBox：表定起降時間（選配）
+  if(AERO_KEY){ // 2. AeroDataBox：表定起降時間（選配），自動填入起降欄位
     try{
       const r=await fetch('https://aerodatabox.p.rapidapi.com/flights/number/'+encodeURIComponent(no),{
         headers:{'X-RapidAPI-Key':AERO_KEY,'X-RapidAPI-Host':'aerodatabox.p.rapidapi.com'}});
@@ -836,19 +840,19 @@ async function flightSearch(){
       if(f&&f.departure){
         const dep=fmtLocalTime(f.departure.scheduledTime&&f.departure.scheduledTime.local);
         const arrT=fmtLocalTime(f.arrival&&f.arrival.scheduledTime&&f.arrival.scheduledTime.local);
-        if(dep){
-          times=`起飛 ${dep}`+(arrT?` → 抵達 ${arrT}`:'');
-          $('fTime').value=dep; // 表定起飛時間自動帶入行程時間
-        }
+        if(dep){ $('fDep').value=dep; $('fTime').value=dep; } // 起飛時間同步帶入行程時間
+        if(arrT) $('fArr').value=arrT;
+        if(dep) times=`🛫 ${dep}`+(arrT?` → 🛬 ${arrT}`:'');
       }
     }catch(e){}
   }
   if(route||times){
-    _flightInfo=[route,times].filter(Boolean).join('｜');
-    hint.textContent='✈️ '+_flightInfo+(times?'（已帶入行程時間）':'');
+    _flightInfo=route;
+    hint.textContent='✈️ '+[route,times].filter(Boolean).join('｜')+(times?'（已自動填入起降時間）':'');
+    if(!times&&!AERO_KEY) hint.textContent+='　※起降時間請手動填入下方欄位（設定 AERO_KEY 可自動帶入，見 README）';
     toast('已帶入航班資訊 ✈️');
   }else{
-    hint.textContent='查不到這個航班編號，請確認格式（例如 BR160、KE188）。儲存後仍可點「航班動態」到 FlightRadar24 查看。';
+    hint.textContent='查不到這個航班編號，請確認格式（例如 BR160、KE188）。起降時間可手動填入下方欄位。';
   }
 }
 
@@ -874,6 +878,7 @@ function openItem(id){
     $('fDay').value=x.day; $('fTime').value=x.time||'09:00';
     $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||'';
     $('fTransit').value=x.transit||''; $('fFlight').value=x.flight||''; $('fNote').value=x.note||'';
+    $('fDep').value=x.dep||''; $('fArr').value=x.arr||'';
     _flightInfo=x.flightInfo||'';
     if(_flightInfo){ $('flightInfoHint').style.display='block'; $('flightInfoHint').textContent='✈️ '+_flightInfo; }
     if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
@@ -882,7 +887,7 @@ function openItem(id){
   }else{
     $('itemModalTitle').textContent='新增行程';
     $('fDay').value=curDay; $('fTime').value='09:00';
-    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fNote').value='';
+    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fDep').value=''; $('fArr').value=''; $('fNote').value='';
   }
   $('itemModal').classList.add('open');
 }
@@ -894,6 +899,7 @@ function saveItem(){
               loc:$('fLoc').value.trim(),phone:$('fPhone').value.trim(),
               transit:$('fTransit').value.trim(),note:$('fNote').value.trim(),
               flight:flightNo,flightInfo:flightNo?_flightInfo:'',
+              dep:flightNo?$('fDep').value:'',arr:flightNo?$('fArr').value:'',
               lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:'',
               blogTitle:_blogPicked?_blogPicked.title:'',blogUrl:_blogPicked?_blogPicked.url:''};
   if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
