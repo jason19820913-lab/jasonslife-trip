@@ -172,6 +172,8 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 .it-blog a{color:var(--teal-d);font-weight:700;text-decoration:none;border-bottom:1.5px dashed var(--teal)}
 .it-blog{font-size:.85rem;margin-top:3px}
 .it-transit{font-size:.85rem;color:var(--teal-d);font-weight:700;margin-top:3px;background:#eef1e6;border-radius:8px;padding:5px 10px;display:inline-block}
+.it-flight{font-size:.85rem;color:#5b6b8c;font-weight:700;margin-top:3px;background:#eaeef5;border-radius:8px;padding:5px 10px;display:inline-block}
+.mini.flight-btn{background:#e7ecf5;color:#5b6b8c}
 @media(max-width:600px){
   .fx-box{grid-template-columns:1fr}
   .fx-swap{justify-self:center;transform:rotate(90deg)}
@@ -305,6 +307,11 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <input id="fTransit" placeholder="選定地點後自動帶入最近車站，也可手動輸入">
       <button type="button" class="geo-btn" onclick="transitSearch(true)">🚇 找車站</button>
     </div>
+    <div class="field geo-row"><label>✈️ 航班編號（機場行程適用）</label>
+      <input id="fFlight" placeholder="例如：BR160，查詢帶出航空公司與航線" onkeydown="if(event.key==='Enter'){event.preventDefault();flightSearch();}">
+      <button type="button" class="geo-btn" onclick="flightSearch()">✈️ 查航班</button>
+      <div class="geo-hint" id="flightInfoHint" style="display:none;padding:8px 2px"></div>
+    </div>
     <div class="field" id="blogField" style="display:none"><label>📖 我的遊記</label>
       <div class="blog-chip"><span id="blogChipText"></span><button type="button" onclick="clearBlog()">✕</button></div>
     </div>
@@ -371,6 +378,11 @@ const BLOG_NAME = "Jason's Life";
    申請：Google Cloud Console → 啟用 Places API (New) → 建立 API 金鑰（建議限制 HTTP referrer）。
    留空則使用免費的 OpenStreetMap。 */
 const GOOGLE_KEY = '';
+
+/* AeroDataBox API 金鑰（選配）：填入後查航班可帶出「表定起降時間」並自動填入行程時間。
+   申請：rapidapi.com 搜尋 AeroDataBox → 訂閱免費方案 → 複製 X-RapidAPI-Key。
+   留空時查航班仍可帶出航空公司與航線（免費 adsbdb.com），並附 FlightRadar24 即時動態連結。 */
+const AERO_KEY = '';
 
 /* ================= 資料 ================= */
 const LS_KEY = 'tripcanvas_v2';
@@ -566,6 +578,7 @@ function renderPlan(){
         ${x.loc?`<div class="it-loc">📍 ${esc(x.loc)}</div>`:''}
         ${x.phone?`<div class="it-phone">📞 ${esc(x.phone)}</div>`:''}
         ${x.transit?`<div class="it-transit">🚇 ${esc(x.transit)}</div>`:''}
+        ${x.flight?`<div class="it-flight">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}</div>`:''}
         ${x.blogUrl?`<div class="it-blog">📖 <a href="${esc(x.blogUrl)}" target="_blank" rel="noopener">${esc(x.blogTitle||'我的遊記')}</a></div>`:''}
         ${x.note?`<div class="it-note">📝 ${esc(x.note)}</div>`:''}
       </div>
@@ -576,6 +589,7 @@ function renderPlan(){
         </div>
         ${(x.loc||x.lat)?`<button class="mini nav-btn" onclick="navTo('${x.id}')">🧭 導航</button>`:''}
         ${x.phone?`<button class="mini call-btn" onclick="callTo('${x.id}')">📞 打電話</button>`:''}
+        ${x.flight?`<button class="mini flight-btn" onclick="window.open('https://www.flightradar24.com/data/flights/${esc(x.flight.toLowerCase())}','_blank')">✈️ 航班動態</button>`:''}
         ${x.blogUrl?`<button class="mini blog-btn" onclick="window.open('${esc(x.blogUrl)}','_blank')">📖 看遊記</button>`:''}
         <button class="mini" onclick="openItem('${x.id}')">編輯</button>
         <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
@@ -792,6 +806,52 @@ async function transitSearch(manual){
   }
 }
 
+/* ── 航班查詢：adsbdb（免金鑰，航空公司+航線）＋ AeroDataBox（選配金鑰，表定時間）── */
+let _flightInfo='';
+function fmtLocalTime(s){ // '2026-09-01 14:20+08:00' → '14:20'
+  const m=String(s||'').match(/\d{2}:\d{2}/g);
+  return m? m[0]:'';
+}
+async function flightSearch(){
+  const no=$('fFlight').value.trim().toUpperCase().replace(/\s+/g,'');
+  const hint=$('flightInfoHint');
+  if(!no){ toast('請先輸入航班編號，例如 BR160'); return; }
+  $('fFlight').value=no;
+  hint.style.display='block'; hint.textContent='查詢航班中…';
+  _flightInfo='';
+  let route='', times='';
+  try{ // 1. adsbdb：航空公司 + 起降機場（免金鑰）
+    const j=await (await fetch('https://api.adsbdb.com/v0/callsign/'+encodeURIComponent(no))).json();
+    const fr=j&&j.response&&j.response.flightroute;
+    if(fr&&fr.origin&&fr.destination){
+      route=`${fr.airline&&fr.airline.name||''}｜${fr.origin.iata_code} ${fr.origin.municipality||''} → ${fr.destination.iata_code} ${fr.destination.municipality||''}`;
+    }
+  }catch(e){}
+  if(AERO_KEY){ // 2. AeroDataBox：表定起降時間（選配）
+    try{
+      const r=await fetch('https://aerodatabox.p.rapidapi.com/flights/number/'+encodeURIComponent(no),{
+        headers:{'X-RapidAPI-Key':AERO_KEY,'X-RapidAPI-Host':'aerodatabox.p.rapidapi.com'}});
+      const arr=await r.json();
+      const f=Array.isArray(arr)? arr[0]:null;
+      if(f&&f.departure){
+        const dep=fmtLocalTime(f.departure.scheduledTime&&f.departure.scheduledTime.local);
+        const arrT=fmtLocalTime(f.arrival&&f.arrival.scheduledTime&&f.arrival.scheduledTime.local);
+        if(dep){
+          times=`起飛 ${dep}`+(arrT?` → 抵達 ${arrT}`:'');
+          $('fTime').value=dep; // 表定起飛時間自動帶入行程時間
+        }
+      }
+    }catch(e){}
+  }
+  if(route||times){
+    _flightInfo=[route,times].filter(Boolean).join('｜');
+    hint.textContent='✈️ '+_flightInfo+(times?'（已帶入行程時間）':'');
+    toast('已帶入航班資訊 ✈️');
+  }else{
+    hint.textContent='查不到這個航班編號，請確認格式（例如 BR160、KE188）。儲存後仍可點「航班動態」到 FlightRadar24 查看。';
+  }
+}
+
 function pickBlogSilent(i){
   const b=_blogResults[i]; if(!b) return;
   _blogPicked={title:b.title,url:b.url};
@@ -802,8 +862,9 @@ function pickBlog(i){ pickBlogSilent(i); toast('已帶入遊記連結 📖'); }
 function clearBlog(){ _blogPicked=null; $('blogField').style.display='none'; }
 let editingId=null;
 function openItem(id){
-  editingId=id||null; _geoPicked=null; _geoResults=[]; _blogResults=[]; _blogPicked=null;
+  editingId=id||null; _geoPicked=null; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo='';
   $('geoResults').classList.remove('open'); $('geoResults').innerHTML='';
+  $('flightInfoHint').style.display='none'; $('flightInfoHint').textContent='';
   clearBlog();
   const days=Math.max(tripDays(),1);
   $('fDay').innerHTML=Array.from({length:days},(_,i)=>`<option value="${i+1}">${dayLabel(i+1)}</option>`).join('');
@@ -812,23 +873,27 @@ function openItem(id){
     $('itemModalTitle').textContent='編輯行程';
     $('fDay').value=x.day; $('fTime').value=x.time||'09:00';
     $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||'';
-    $('fTransit').value=x.transit||''; $('fNote').value=x.note||'';
+    $('fTransit').value=x.transit||''; $('fFlight').value=x.flight||''; $('fNote').value=x.note||'';
+    _flightInfo=x.flightInfo||'';
+    if(_flightInfo){ $('flightInfoHint').style.display='block'; $('flightInfoHint').textContent='✈️ '+_flightInfo; }
     if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
     if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
       $('blogField').style.display='block'; $('blogChipText').textContent=_blogPicked.title; }
   }else{
     $('itemModalTitle').textContent='新增行程';
     $('fDay').value=curDay; $('fTime').value='09:00';
-    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fTransit').value=''; $('fNote').value='';
+    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fNote').value='';
   }
   $('itemModal').classList.add('open');
 }
 function saveItem(){
   const title=$('fTitle').value.trim();
   if(!title){ toast('請輸入行程名稱'); return; }
+  const flightNo=$('fFlight').value.trim().toUpperCase().replace(/\s+/g,'');
   const data={day:+$('fDay').value,time:$('fTime').value,title,
               loc:$('fLoc').value.trim(),phone:$('fPhone').value.trim(),
               transit:$('fTransit').value.trim(),note:$('fNote').value.trim(),
+              flight:flightNo,flightInfo:flightNo?_flightInfo:'',
               lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:'',
               blogTitle:_blogPicked?_blogPicked.title:'',blogUrl:_blogPicked?_blogPicked.url:''};
   if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
