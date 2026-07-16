@@ -301,7 +301,10 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     </div>
     <div class="field"><label>地址（用於導航）</label><input id="fLoc" placeholder="可自動帶入或手動輸入"></div>
     <div class="field"><label>電話</label><input id="fPhone" placeholder="可自動帶入或手動輸入" type="tel"></div>
-    <div class="field"><label>🚇 大眾運輸指引</label><input id="fTransit" placeholder="例如：南浦站 7 號出口，步行 5 分鐘"></div>
+    <div class="field geo-row"><label>🚇 大眾運輸指引</label>
+      <input id="fTransit" placeholder="選定地點後自動帶入最近車站，也可手動輸入">
+      <button type="button" class="geo-btn" onclick="transitSearch(true)">🚇 找車站</button>
+    </div>
     <div class="field" id="blogField" style="display:none"><label>📖 我的遊記</label>
       <div class="blog-chip"><span id="blogChipText"></span><button type="button" onclick="clearBlog()">✕</button></div>
     </div>
@@ -363,6 +366,11 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbzaTFAXMBYhm0rxkAFEZjhg
 /* 部落格整合：搜尋景點時自動比對文章標題，有寫過就帶入連結（WordPress 網站，留空停用） */
 const BLOG_URL  = 'https://jasonslife.tw';
 const BLOG_NAME = "Jason's Life";
+
+/* Google Places API 金鑰（選配）：填入後地點搜尋改用 Google Maps 資料（地址電話最完整）。
+   申請：Google Cloud Console → 啟用 Places API (New) → 建立 API 金鑰（建議限制 HTTP referrer）。
+   留空則使用免費的 OpenStreetMap。 */
+const GOOGLE_KEY = '';
 
 /* ================= 資料 ================= */
 const LS_KEY = 'tripcanvas_v2';
@@ -647,6 +655,30 @@ async function blogSearch(q){
                .filter(p=>p.title.toLowerCase().includes(q.toLowerCase()));
   }catch(e){ return []; }
 }
+/* 韓國旅程回傳韓文地址（Naver Map 用韓文地址最準），其他地區中文優先。
+   搜尋關鍵字本身中/英/日/韓皆可（比對 OSM / Google 的多語名稱庫）。 */
+function geoLang(){ return isKoreaItem(null)? 'ko' : 'zh-TW'; }
+async function googleSearch(q){ // Google Places API (New)，需 GOOGLE_KEY
+  if(!GOOGLE_KEY) return null;
+  try{
+    const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
+        'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.location'},
+      body:JSON.stringify({textQuery:q,languageCode:geoLang(),pageSize:5})
+    });
+    const j=await r.json();
+    if(!j.places||!j.places.length) return [];
+    // 轉成與 Nominatim 相同的結構
+    return j.places.map(p=>({
+      name:p.displayName&&p.displayName.text||'',
+      display_name:p.formattedAddress||'',
+      lat:String(p.location&&p.location.latitude||''),
+      lon:String(p.location&&p.location.longitude||''),
+      extratags:{phone:p.internationalPhoneNumber||''}
+    }));
+  }catch(e){ return null; }
+}
 async function geoSearch(){
   const q=$('fTitle').value.trim();
   const box=$('geoResults');
@@ -654,13 +686,17 @@ async function geoSearch(){
   box.innerHTML='<div class="geo-hint">搜尋中…</div>'; box.classList.add('open');
   // 地點與部落格並行搜尋
   const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.]/g,' '):'';
-  const nomiUrl=k=>'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language=zh-TW&q='+encodeURIComponent(k);
+  const lang=geoLang()+',zh-TW,zh,en,ja,ko';
+  const nomiUrl=k=>'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language='+encodeURIComponent(lang)+'&q='+encodeURIComponent(k);
   const geoP=(async()=>{
+    // 優先 Google Places（有金鑰時），失敗或沒結果退回 OpenStreetMap
+    const g=await googleSearch(q+dest);
+    if(g&&g.length) return g;
     try{
       let list=await (await fetch(nomiUrl(q+dest))).json();
       if(!list.length && dest) list=await (await fetch(nomiUrl(q))).json();
       return list;
-    }catch(e){ return null; } // null = 服務異常
+    }catch(e){ return g; } // g 可能是 []（Google 正常但沒結果）或 null（皆異常）
   })();
   const [geoList,blogList]=await Promise.all([geoP, blogSearch(q)]);
   _geoResults=geoList||[]; _blogResults=blogList;
@@ -686,6 +722,11 @@ async function geoSearch(){
   }else{
     html+='<div class="geo-hint">找不到這個地點，可改試「名稱＋城市」或直接手動填地址</div>';
   }
+  // 快速外連查證：韓國給 Naver Map，其他給 Google Maps
+  const extLink = isKoreaItem(null)
+    ? 'https://map.naver.com/p/search/'+encodeURIComponent(q)
+    : 'https://www.google.com/maps/search/'+encodeURIComponent(q+dest);
+  html+=`<div class="geo-hint">🔗 <a href="${extLink}" target="_blank" rel="noopener" style="color:var(--teal-d);font-weight:700">在 ${isKoreaItem(null)?'Naver Map':'Google Maps'} 開啟「${esc(q)}」查證 ↗</a></div>`;
   box.innerHTML=html;
 }
 function geoPick(i){
@@ -698,7 +739,59 @@ function geoPick(i){
   _geoPicked={lat:r.lat,lon:r.lon};
   $('geoResults').classList.remove('open');
   toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此地點無電話資料）✅');
+  transitSearch(false); // 背景自動找最近車站帶入大眾運輸指引
 }
+/* ── 最近車站自動帶入（OpenStreetMap Overpass API，免金鑰）── */
+function haversine(a1,o1,a2,o2){
+  const R=6371000,rad=Math.PI/180;
+  const dA=(a2-a1)*rad,dO=(o2-o1)*rad;
+  const h=Math.sin(dA/2)**2+Math.cos(a1*rad)*Math.cos(a2*rad)*Math.sin(dO/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function osmName(tags){
+  return tags['name:zh-Hant']||tags['name:zh']||tags.name||tags['name:en']||'';
+}
+async function transitSearch(manual){
+  if(!_geoPicked){ if(manual) toast('請先用「🔍 搜尋」選定地點，才有座標可以找車站'); return; }
+  const la=+_geoPicked.lat, lo=+_geoPicked.lon;
+  if(manual) toast('尋找最近車站中…');
+  const query=`[out:json][timeout:10];(node(around:1200,${la},${lo})[railway=station];node(around:1200,${la},${lo})[station=subway];node(around:1200,${la},${lo})[railway=subway_entrance];);out body;`;
+  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+  let elements=null;
+  for(const ep of endpoints){
+    try{
+      const r=await fetch(ep+'?data='+encodeURIComponent(query));
+      const j=await r.json();
+      if(j&&Array.isArray(j.elements)){ elements=j.elements; break; }
+    }catch(e){}
+  }
+  if(!elements){ if(manual) toast('⚠️ 車站查詢服務暫時無法使用，請手動輸入'); return; }
+  let station=null,stDist=1e9, entrance=null,enDist=1e9;
+  elements.forEach(el=>{
+    const d=haversine(la,lo,el.lat,el.lon), t=el.tags||{};
+    if(t.railway==='subway_entrance'){ if(d<enDist){ enDist=d; entrance=el; } }
+    else if(osmName(t)){ if(d<stDist){ stDist=d; station=el; } }
+  });
+  if(!station&&!entrance){ if(manual) toast('附近 1.2 公里內找不到車站資料，請手動輸入'); return; }
+  let text='', dist;
+  if(entrance&&entrance.tags.ref){
+    // 出口通常比車站主點更接近實際步行目標
+    const stName=station? osmName(station.tags):'';
+    dist=enDist;
+    text=(stName?stName.replace(/站$/,'')+'站 ':'')+entrance.tags.ref+' 號出口';
+  }else if(station){
+    dist=stDist;
+    const n=osmName(station.tags);
+    text=/站$/.test(n)? n : n+'站';
+  }
+  const mins=Math.max(1,Math.round(dist/80)); // 步行約 80 公尺/分
+  text+='（步行約 '+mins+' 分鐘）';
+  if(!$('fTransit').value.trim()||manual){
+    $('fTransit').value=text;
+    toast('已帶入最近車站 🚇 '+text);
+  }
+}
+
 function pickBlogSilent(i){
   const b=_blogResults[i]; if(!b) return;
   _blogPicked={title:b.title,url:b.url};
@@ -1011,12 +1104,37 @@ async function cloudLoad(manual){
 }
 
 /* ================= 分享 / 匯出入 ================= */
-function shareLink(){
-  const t=T();
-  const data=btoa(unescape(encodeURIComponent(JSON.stringify({v:2,trip:t}))));
-  const url=location.origin+location.pathname+'#trip='+data;
+async function shareLink(){
+  const payload=JSON.stringify({v:2,trip:T()});
+  let url='';
+  if(API_URL){ // 用自家後端產生短代碼 → 短網址
+    toast('產生短連結中…');
+    try{
+      const r=await api('share',{data:payload});
+      if(r.code) url=location.origin+location.pathname+'#s='+r.code;
+    }catch(e){}
+  }
+  if(!url){ // 無後端或失敗 → 退回長連結（資料全編碼在網址中）
+    url=location.origin+location.pathname+'#trip='+btoa(unescape(encodeURIComponent(payload)));
+  }
   navigator.clipboard.writeText(url).then(()=>toast('分享連結已複製！旅伴打開後會存成一份新旅程 🔗'))
     .catch(()=>{ prompt('複製此連結分享：',url); });
+}
+async function loadShareFromHash(){ // 短代碼連結 #s=xxxxxxxx
+  if(!location.hash.startsWith('#s=')) return;
+  const code=location.hash.slice(3);
+  history.replaceState(null,'',location.pathname);
+  if(!API_URL||!code) return;
+  try{
+    const r=await api('getShare',{code});
+    if(r.error){ toast('❌ '+r.error); return; }
+    const j=JSON.parse(r.data);
+    if(j.v===2&&j.trip&&j.trip.trip&&confirm(`收到分享的旅程「${j.trip.trip.name}」，要加入我的旅程嗎？\n（會新增一份，不會覆蓋你原本的旅程）`)){
+      const t={...j.trip,id:uid(),updatedAt:Date.now()};
+      state.trips.push(t); state.activeId=t.id;
+      save(); renderAll(); toast('已加入旅程 ✅');
+    }
+  }catch(e){ toast('❌ 讀取分享失敗，請稍後再試'); }
 }
 function exportJSON(){
   const blob=new Blob([JSON.stringify({trips:state.trips,activeId:state.activeId},null,2)],{type:'application/json'});
@@ -1066,8 +1184,9 @@ function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats();
   $('sCur').innerHTML = $('fxCur').innerHTML;
   $('clNewCat').innerHTML = CATS.map(c=>`<option>${c}</option>`).join('');
   $('fLoc').addEventListener('input',()=>{_geoPicked=null;}); // 手動改地址時清除舊座標，導航改用新地址
-  loadFromHash();
+  loadFromHash();      // 舊版長連結 #trip=
   renderAll();
+  loadShareFromHash(); // 短連結 #s=
   loadRates();
   if(API_URL&&state.account) cloudLoad(); // 開啟頁面時自動拉最新雲端資料
 })();
