@@ -90,6 +90,15 @@ h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--grad);display:in
 .empty{text-align:center;color:var(--sub);padding:36px 10px}
 .empty .em{font-size:2.2rem;display:block;margin-bottom:8px}
 .plan-tools{display:flex;justify-content:flex-end;margin-bottom:10px}
+/* 主題色票 */
+.swatches{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.swatch{width:34px;height:34px;border-radius:50%;border:3px solid transparent;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);transition:.15s}
+.swatch:hover{transform:scale(1.1)}
+.swatch.sel{border-color:var(--ink)}
+.swatch-custom{display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--sub)}
+.swatch-custom input[type=color]{width:34px;height:34px;border:none;border-radius:50%;padding:0;background:none;cursor:pointer}
+.swatch-custom input[type=color]::-webkit-color-swatch{border-radius:50%;border:3px solid #eee}
+.swatch-custom input[type=color]::-webkit-color-swatch-wrapper{padding:0}
 .move-group{display:flex;gap:6px}
 .move-group .mini{padding:5px 7px}
 .mini:disabled{opacity:.35;cursor:default}
@@ -301,6 +310,9 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     <div class="field"><label>出發時間</label><input type="datetime-local" id="sStart"></div>
     <div class="field"><label>回程日期</label><input type="date" id="sEnd"></div>
     <div class="field"><label>當地貨幣</label><select id="sCur"></select></div>
+    <div class="field"><label>背景主題色</label>
+      <div class="swatches" id="swatches"></div>
+    </div>
     <div class="modal-acts">
       <button class="btn btn-ghost" onclick="closeModal('setModal')">取消</button>
       <button class="btn btn-p" onclick="saveSettings()">儲存</button>
@@ -359,7 +371,7 @@ const CATS = ['證件文件','金錢','3C 用品','衣物盥洗','藥品健康',
 function uid(){ return 'i'+Date.now()+Math.random().toString(36).slice(2,6); }
 function defaultChecklist(){ return DEFAULT_CHECKLIST.map((c,i)=>({id:'c'+i+Math.random().toString(36).slice(2,5),cat:c[0],text:c[1],done:false})); }
 function newTrip(name){
-  return { id:uid(), trip:{name:name||'我的旅程',dest:'',start:'',end:'',currency:'JPY'},
+  return { id:uid(), trip:{name:name||'我的旅程',dest:'',start:'',end:'',currency:'JPY',color:'#7c9082'},
            items:[], checklist:defaultChecklist(), updatedAt:Date.now() };
 }
 function defaultState(){
@@ -480,6 +492,7 @@ function renderTrips(){
     const cur=t.id===state.activeId;
     const dates=t.trip.start? t.trip.start.slice(0,10).replaceAll('-','/')+(t.trip.end?' ～ '+t.trip.end.replaceAll('-','/'):''):'尚未設定日期';
     return `<div class="trip-row ${cur?'cur':''}" onclick="switchTrip('${t.id}')">
+      <div class="swatch" style="background:${t.trip.color||'#7c9082'};width:22px;height:22px;flex-shrink:0;cursor:default"></div>
       <div class="ti">
         <div class="tn">${esc(t.trip.name)} ${cur?'<span class="badge">目前</span>':''}</div>
         <div class="tm">📍 ${esc(t.trip.dest)||'未設定'} ・ ${dates} ・ ${t.items.length} 個行程</div>
@@ -760,12 +773,50 @@ function resetChecklist(){
   save(); renderChecklist();
 }
 
+/* ================= 主題色 ================= */
+const DEFAULT_COLOR='#7c9082';
+const PALETTE=[ // 文青莫蘭迪色票
+  ['#7c9082','灰綠'],['#8d97b0','霧藍'],['#b3898b','乾燥玫瑰'],['#a58a6f','奶茶'],
+  ['#96916f','抹茶'],['#7f8b99','藍灰'],['#b08968','焦糖'],['#8a7f95','薰衣草灰']
+];
+function hex2rgb(h){ h=h.replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join('');
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+function rgb2hex(r,g,b){ return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); }
+function mix(hexA,hexB,t){ // t=0 → A，t=1 → B
+  const a=hex2rgb(hexA),b=hex2rgb(hexB);
+  return rgb2hex(a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
+}
+function applyTheme(color){
+  const c=/^#[0-9a-fA-F]{6}$/.test(color||'')? color : DEFAULT_COLOR;
+  const r=document.documentElement.style;
+  r.setProperty('--teal',c);
+  r.setProperty('--teal-d',mix(c,'#2b2a25',.28));                 // 深一階
+  r.setProperty('--sky',mix(c,'#d8c9a6',.55));                    // 漸層尾端偏奶茶
+  r.setProperty('--grad',`linear-gradient(135deg,${c} 0%,${mix(c,'#d8c9a6',.55)} 100%)`);
+  r.setProperty('--bg',mix(c,'#faf8f1',.93));                     // 頁面底色淡染
+  r.setProperty('--line',mix(c,'#efe9db',.88));
+}
+let _pickedColor=DEFAULT_COLOR;
+function renderSwatches(){
+  const cur=_pickedColor;
+  $('swatches').innerHTML = PALETTE.map(p=>
+    `<div class="swatch ${p[0]===cur?'sel':''}" style="background:${p[0]}" title="${p[1]}" onclick="pickColor('${p[0]}')"></div>`
+  ).join('') + `<label class="swatch-custom"><input type="color" id="sColor" value="${cur}" oninput="pickColor(this.value)">自訂</label>`;
+}
+function pickColor(c){
+  _pickedColor=c;
+  renderSwatches();
+  applyTheme(c); // 即時預覽
+}
+
 /* ================= 設定 ================= */
 function openSettings(){
   const tr=T().trip;
   $('sName').value=tr.name; $('sDest').value=tr.dest;
   $('sStart').value=tr.start; $('sEnd').value=tr.end;
   $('sCur').value=tr.currency;
+  _pickedColor=tr.color||DEFAULT_COLOR;
+  renderSwatches();
   $('setModal').classList.add('open');
 }
 function saveSettings(){
@@ -775,12 +826,16 @@ function saveSettings(){
   tr.start=$('sStart').value;
   tr.end=$('sEnd').value;
   tr.currency=$('sCur').value;
+  tr.color=_pickedColor;
   save(); closeModal('setModal');
   $('fxCur').value=tr.currency;
   renderAll(); toast('設定已儲存 ✅');
 }
-function closeModal(id){ $(id).classList.remove('open'); }
-document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
+function closeModal(id){
+  $(id).classList.remove('open');
+  if(id==='setModal') applyTheme(T().trip.color); // 取消時把預覽顏色還原
+}
+document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)closeModal(m.id);}));
 
 /* ================= 帳號 / 雲端同步 ================= */
 let syncTimer=null, syncing=false, lastSyncText='';
@@ -945,7 +1000,7 @@ function resetAll(){
 }
 
 /* ================= init ================= */
-function renderAll(){ renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderCloudBtn(); tick();
+function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderCloudBtn(); tick();
   $('fxCur').value=T().trip.currency||'JPY'; if(rates) fxChanged(); }
 (function init(){
   $('fxCur').innerHTML = CURRENCIES.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('');
