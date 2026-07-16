@@ -164,6 +164,14 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 .geo-item .gn{font-weight:700}
 .geo-item .ga{font-size:.78rem;color:var(--sub);margin-top:2px}
 .geo-hint{font-size:.78rem;color:var(--sub);padding:10px 12px}
+.geo-sec{font-size:.75rem;font-weight:900;color:var(--teal-d);background:#f2f4ec;padding:6px 12px;letter-spacing:1px}
+.blog-chip{display:flex;align-items:center;gap:8px;background:#f5f2e9;border:1.5px solid var(--line);border-radius:12px;padding:9px 12px;font-size:.85rem}
+.blog-chip span{flex:1;color:var(--teal-d);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.blog-chip button{border:none;background:none;color:var(--rose);font-weight:700;cursor:pointer}
+.mini.blog-btn{background:#f0e9dc;color:#8a6d3b}
+.it-blog a{color:var(--teal-d);font-weight:700;text-decoration:none;border-bottom:1.5px dashed var(--teal)}
+.it-blog{font-size:.85rem;margin-top:3px}
+.it-transit{font-size:.85rem;color:var(--teal-d);font-weight:700;margin-top:3px;background:#eef1e6;border-radius:8px;padding:5px 10px;display:inline-block}
 @media(max-width:600px){
   .fx-box{grid-template-columns:1fr}
   .fx-swap{justify-self:center;transform:rotate(90deg)}
@@ -293,6 +301,10 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     </div>
     <div class="field"><label>地址（用於導航）</label><input id="fLoc" placeholder="可自動帶入或手動輸入"></div>
     <div class="field"><label>電話</label><input id="fPhone" placeholder="可自動帶入或手動輸入" type="tel"></div>
+    <div class="field"><label>🚇 大眾運輸指引</label><input id="fTransit" placeholder="例如：南浦站 7 號出口，步行 5 分鐘"></div>
+    <div class="field" id="blogField" style="display:none"><label>📖 我的遊記</label>
+      <div class="blog-chip"><span id="blogChipText"></span><button type="button" onclick="clearBlog()">✕</button></div>
+    </div>
     <div class="field"><label>備註</label><textarea id="fNote" rows="2" placeholder="門票、預約時間、注意事項…"></textarea></div>
     <div class="modal-acts">
       <button class="btn btn-ghost" onclick="closeModal('itemModal')">取消</button>
@@ -347,6 +359,10 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
    部署自己的後端後，把 Apps Script Web App 網址貼在下面（詳見 README）。
    留空 = 純本機模式（沒有帳號功能，其他功能不受影響）。 */
 const API_URL = 'https://script.google.com/macros/s/AKfycbzaTFAXMBYhm0rxkAFEZjhgKgVFUNv0Otfdv2uImXpNGDlIDOvsKmGLR_znWRfPOVQ-/exec';
+
+/* 部落格整合：搜尋景點時自動比對文章標題，有寫過就帶入連結（WordPress 網站，留空停用） */
+const BLOG_URL  = 'https://jasonslife.tw';
+const BLOG_NAME = "Jason's Life";
 
 /* ================= 資料 ================= */
 const LS_KEY = 'tripcanvas_v2';
@@ -541,6 +557,8 @@ function renderPlan(){
         <div class="it-title">${esc(x.title)}</div>
         ${x.loc?`<div class="it-loc">📍 ${esc(x.loc)}</div>`:''}
         ${x.phone?`<div class="it-phone">📞 ${esc(x.phone)}</div>`:''}
+        ${x.transit?`<div class="it-transit">🚇 ${esc(x.transit)}</div>`:''}
+        ${x.blogUrl?`<div class="it-blog">📖 <a href="${esc(x.blogUrl)}" target="_blank" rel="noopener">${esc(x.blogTitle||'我的遊記')}</a></div>`:''}
         ${x.note?`<div class="it-note">📝 ${esc(x.note)}</div>`:''}
       </div>
       <div class="it-acts">
@@ -550,6 +568,7 @@ function renderPlan(){
         </div>
         ${(x.loc||x.lat)?`<button class="mini nav-btn" onclick="navTo('${x.id}')">🧭 導航</button>`:''}
         ${x.phone?`<button class="mini call-btn" onclick="callTo('${x.id}')">📞 打電話</button>`:''}
+        ${x.blogUrl?`<button class="mini blog-btn" onclick="window.open('${esc(x.blogUrl)}','_blank')">📖 看遊記</button>`:''}
         <button class="mini" onclick="openItem('${x.id}')">編輯</button>
         <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
       </div>
@@ -614,24 +633,47 @@ function callTo(id){
   location.href='tel:'+x.phone.replace(/[^\d+]/g,'');
 }
 
-/* ── 地點搜尋（OpenStreetMap Nominatim，免金鑰）── */
-let _geoResults=[], _geoPicked=null;
+/* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
+let _geoResults=[], _geoPicked=null, _blogResults=[], _blogPicked=null;
+function decodeEntities(s){ const t=document.createElement('textarea'); t.innerHTML=s||''; return t.value; }
+async function blogSearch(q){
+  if(!BLOG_URL) return [];
+  try{
+    const url=BLOG_URL+'/wp-json/wp/v2/posts?per_page=10&_fields=title,link&search='+encodeURIComponent(q);
+    const list=await (await fetch(url)).json();
+    if(!Array.isArray(list)) return [];
+    // WP 搜尋連內文都比對，這裡只留「標題」有含關鍵字的文章
+    return list.map(p=>({title:decodeEntities(p.title&&p.title.rendered||''),url:p.link}))
+               .filter(p=>p.title.toLowerCase().includes(q.toLowerCase()));
+  }catch(e){ return []; }
+}
 async function geoSearch(){
   const q=$('fTitle').value.trim();
   const box=$('geoResults');
   if(!q){ toast('請先輸入名稱再搜尋'); return; }
   box.innerHTML='<div class="geo-hint">搜尋中…</div>'; box.classList.add('open');
-  try{
-    // 加上目的地提高準確度，例如在「東京」旅程搜「一蘭」
-    const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.]/g,' '):'';
-    const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language=zh-TW&q='+encodeURIComponent(q+dest);
-    let list=await (await fetch(url)).json();
-    if(!list.length && dest){ // 加目的地找不到就退回只搜名稱
-      list=await (await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language=zh-TW&q='+encodeURIComponent(q))).json();
-    }
-    _geoResults=list;
-    if(!list.length){ box.innerHTML='<div class="geo-hint">找不到這個地點，可改試「名稱＋城市」或直接手動填地址</div>'; return; }
-    box.innerHTML=list.map((r,i)=>{
+  // 地點與部落格並行搜尋
+  const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.]/g,' '):'';
+  const nomiUrl=k=>'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language=zh-TW&q='+encodeURIComponent(k);
+  const geoP=(async()=>{
+    try{
+      let list=await (await fetch(nomiUrl(q+dest))).json();
+      if(!list.length && dest) list=await (await fetch(nomiUrl(q))).json();
+      return list;
+    }catch(e){ return null; } // null = 服務異常
+  })();
+  const [geoList,blogList]=await Promise.all([geoP, blogSearch(q)]);
+  _geoResults=geoList||[]; _blogResults=blogList;
+  let html='';
+  if(blogList.length){
+    html+=`<div class="geo-sec">📖 ${esc(BLOG_NAME)} 寫過這裡！點選帶入文章連結</div>`;
+    html+=blogList.slice(0,3).map((b,i)=>
+      `<div class="geo-item" onclick="pickBlog(${i})"><div class="gn">📖 ${esc(b.title)}</div></div>`).join('');
+    if(!_blogPicked){ pickBlogSilent(0); } // 自動帶入第一篇（可移除）
+  }
+  if(_geoResults.length){
+    html+=`<div class="geo-sec">📍 地點資料（點選帶入地址電話）</div>`;
+    html+=_geoResults.map((r,i)=>{
       const ex=r.extratags||{};
       const phone=ex.phone||ex['contact:phone']||'';
       return `<div class="geo-item" onclick="geoPick(${i})">
@@ -639,9 +681,12 @@ async function geoSearch(){
         <div class="ga">${esc(r.display_name)}${phone?'　📞 '+esc(phone):''}</div>
       </div>`;
     }).join('');
-  }catch(e){
-    box.innerHTML='<div class="geo-hint">⚠️ 搜尋服務暫時無法使用，請手動輸入地址</div>';
+  }else if(geoList===null){
+    html+='<div class="geo-hint">⚠️ 地點搜尋服務暫時無法使用，請手動輸入地址</div>';
+  }else{
+    html+='<div class="geo-hint">找不到這個地點，可改試「名稱＋城市」或直接手動填地址</div>';
   }
+  box.innerHTML=html;
 }
 function geoPick(i){
   const r=_geoResults[i]; if(!r) return;
@@ -654,22 +699,34 @@ function geoPick(i){
   $('geoResults').classList.remove('open');
   toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此地點無電話資料）✅');
 }
+function pickBlogSilent(i){
+  const b=_blogResults[i]; if(!b) return;
+  _blogPicked={title:b.title,url:b.url};
+  $('blogField').style.display='block';
+  $('blogChipText').textContent=b.title;
+}
+function pickBlog(i){ pickBlogSilent(i); toast('已帶入遊記連結 📖'); }
+function clearBlog(){ _blogPicked=null; $('blogField').style.display='none'; }
 let editingId=null;
 function openItem(id){
-  editingId=id||null; _geoPicked=null; _geoResults=[];
+  editingId=id||null; _geoPicked=null; _geoResults=[]; _blogResults=[]; _blogPicked=null;
   $('geoResults').classList.remove('open'); $('geoResults').innerHTML='';
+  clearBlog();
   const days=Math.max(tripDays(),1);
   $('fDay').innerHTML=Array.from({length:days},(_,i)=>`<option value="${i+1}">${dayLabel(i+1)}</option>`).join('');
   if(id){
     const x=T().items.find(i=>i.id===id);
     $('itemModalTitle').textContent='編輯行程';
     $('fDay').value=x.day; $('fTime').value=x.time||'09:00';
-    $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||''; $('fNote').value=x.note||'';
+    $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||'';
+    $('fTransit').value=x.transit||''; $('fNote').value=x.note||'';
     if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
+    if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
+      $('blogField').style.display='block'; $('blogChipText').textContent=_blogPicked.title; }
   }else{
     $('itemModalTitle').textContent='新增行程';
     $('fDay').value=curDay; $('fTime').value='09:00';
-    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fNote').value='';
+    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fTransit').value=''; $('fNote').value='';
   }
   $('itemModal').classList.add('open');
 }
@@ -677,8 +734,10 @@ function saveItem(){
   const title=$('fTitle').value.trim();
   if(!title){ toast('請輸入行程名稱'); return; }
   const data={day:+$('fDay').value,time:$('fTime').value,title,
-              loc:$('fLoc').value.trim(),phone:$('fPhone').value.trim(),note:$('fNote').value.trim(),
-              lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:''};
+              loc:$('fLoc').value.trim(),phone:$('fPhone').value.trim(),
+              transit:$('fTransit').value.trim(),note:$('fNote').value.trim(),
+              lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:'',
+              blogTitle:_blogPicked?_blogPicked.title:'',blogUrl:_blogPicked?_blogPicked.url:''};
   if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
   else{ T().items.push({id:uid(),...data}); }
   save(); closeModal('itemModal'); curDay=data.day; renderPlan(); renderStats(); toast('已儲存 ✅');
