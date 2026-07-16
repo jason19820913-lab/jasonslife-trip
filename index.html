@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旅圖 TripCanvas｜我的旅程規劃</title>
+<meta name="description" content="清新設計的旅程規劃網站：多行程管理、行程編排、即時匯率、導航、出發倒數、行前清單、雲端同步。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=Noto+Serif+TC:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* 文青莫蘭迪色系：灰綠 × 奶茶 × 米白紙感 */
+  --teal:#7c9082; --teal-d:#5c7263; --sky:#b3a184; --ink:#403e37;
+  --sub:#8c8779; --bg:#f6f3ec; --card:#fffefa; --line:#e8e2d4;
+  --amber:#c9a86a; --rose:#b3766e;
+  --grad:linear-gradient(135deg,#7c9082 0%,#b3a184 100%);
+  --shadow:0 4px 18px rgba(90,80,60,.09);
+  --radius:18px;
+  --serif:'Noto Serif TC',serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:1rem}
+
+/* ── header ── */
+header{background:var(--grad);color:#fff;padding:28px 20px 72px;position:relative}
+.hwrap{max-width:960px;margin:0 auto;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.trip-name{font-family:var(--serif);font-size:1.7rem;font-weight:900;letter-spacing:2px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.trip-name .caret{font-size:1rem;opacity:.8}
+.trip-dest{opacity:.92;margin-top:4px;font-weight:500}
+.hbtns{display:flex;gap:8px;flex-wrap:wrap}
+.icon-btn{background:rgba(255,255,255,.22);border:none;color:#fff;border-radius:12px;padding:9px 14px;font-size:.9rem;font-weight:500;backdrop-filter:blur(4px)}
+.icon-btn:hover{background:rgba(255,255,255,.34)}
+
+/* ── nav ── */
+nav{max-width:960px;margin:-46px auto 0;padding:0 20px;position:relative;z-index:5}
+.tabs{display:flex;background:var(--card);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.tab{flex:1;border:none;background:none;padding:14px 4px;font-size:.95rem;font-weight:700;color:var(--sub);border-bottom:3px solid transparent;transition:.2s}
+.tab.active{color:var(--teal-d);border-bottom-color:var(--teal)}
+.tab .em{font-size:1.15rem;display:block;margin-bottom:2px}
+
+main{max-width:960px;margin:0 auto;padding:24px 20px 80px}
+section{display:none}
+section.active{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;margin-bottom:18px}
+h2{font-family:var(--serif);font-size:1.1rem;font-weight:900;letter-spacing:1.5px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--grad);display:inline-block}
+.muted{color:var(--sub);font-size:.85rem}
+
+/* ── countdown ── */
+.count-hero{text-align:center;padding:34px 20px}
+.count-label{font-weight:700;color:var(--sub);letter-spacing:2px;font-size:.9rem}
+.count-grid{display:flex;justify-content:center;gap:12px;margin:18px 0 10px;flex-wrap:wrap}
+.count-cell{background:linear-gradient(160deg,#f4f6ef,#f7f2e8);border:1px solid var(--line);border-radius:16px;min-width:86px;padding:16px 10px}
+.count-num{font-family:var(--serif);font-size:2.3rem;font-weight:900;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;font-variant-numeric:tabular-nums}
+.count-unit{font-size:.8rem;color:var(--sub);font-weight:500;margin-top:2px}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stat{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;text-align:center}
+.stat b{font-size:1.5rem;font-weight:900;color:var(--teal-d);display:block}
+.stat span{font-size:.8rem;color:var(--sub)}
+.share-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.btn{border:none;border-radius:12px;padding:11px 18px;font-weight:700;font-size:.92rem;transition:.15s}
+.btn-p{background:var(--grad);color:#fff}
+.btn-p:hover{filter:brightness(1.06)}
+.btn-o{background:#fff;color:var(--teal-d);border:1.5px solid var(--teal)}
+.btn-o:hover{background:#f2f4ec}
+.btn-ghost{background:#eeebe1;color:var(--sub)}
+.btn-danger{background:#f6ebe8;color:var(--rose)}
+
+/* ── itinerary ── */
+.day-chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px}
+.chip{white-space:nowrap;border:1.5px solid var(--line);background:#fff;color:var(--sub);border-radius:999px;padding:8px 16px;font-weight:700;font-size:.88rem}
+.chip.active{background:var(--grad);color:#fff;border-color:transparent}
+.it-item{display:flex;gap:14px;padding:14px 0;border-bottom:1px dashed var(--line)}
+.it-item:last-child{border-bottom:none}
+.it-time{font-weight:900;color:var(--teal-d);min-width:56px;font-variant-numeric:tabular-nums}
+.it-body{flex:1}
+.it-title{font-weight:700}
+.it-loc{font-size:.85rem;color:var(--sub);margin-top:2px}
+.it-phone{font-size:.85rem;color:var(--sub);margin-top:2px}
+.it-note{font-size:.85rem;color:var(--sub);margin-top:4px;background:#f5f2e9;border-radius:8px;padding:6px 10px}
+.it-acts{display:flex;flex-direction:column;gap:6px}
+.mini{border:none;background:#eeece2;color:var(--teal-d);border-radius:8px;padding:5px 9px;font-size:.78rem;font-weight:700}
+.mini.nav-btn{background:var(--grad);color:#fff}
+.mini.call-btn{background:#e9eee7;color:var(--teal-d)}
+.mini.del{background:#f6ebe8;color:var(--rose)}
+.empty{text-align:center;color:var(--sub);padding:36px 10px}
+.empty .em{font-size:2.2rem;display:block;margin-bottom:8px}
+.plan-tools{display:flex;justify-content:flex-end;margin-bottom:10px}
+.move-group{display:flex;gap:6px}
+.move-group .mini{padding:5px 7px}
+.mini:disabled{opacity:.35;cursor:default}
+
+/* ── currency ── */
+.fx-box{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:end}
+.fx-box label{font-size:.8rem;font-weight:700;color:var(--sub);display:block;margin-bottom:6px}
+.fx-box input,.fx-box select,.field input,.field select,.field textarea{width:100%;border:1.5px solid var(--line);border-radius:12px;padding:11px 13px;background:#fff;outline:none}
+.fx-box input:focus,.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--teal)}
+.fx-swap{background:var(--grad);color:#fff;border:none;border-radius:50%;width:42px;height:42px;font-size:1.1rem;margin-bottom:2px}
+.fx-meta{margin-top:12px;font-size:.85rem;color:var(--sub)}
+.fx-table{width:100%;border-collapse:collapse;margin-top:10px}
+.fx-table td{padding:9px 6px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.fx-table td:last-child{text-align:right;font-weight:700;color:var(--teal-d)}
+
+/* ── checklist ── */
+.progress{height:10px;background:#eae6da;border-radius:999px;overflow:hidden;margin:8px 0 18px}
+.progress i{display:block;height:100%;background:var(--grad);border-radius:999px;transition:width .3s}
+.cl-cat{font-weight:900;color:var(--teal-d);margin:16px 0 6px;font-size:.95rem}
+.cl-item{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px dashed var(--line)}
+.cl-item input[type=checkbox]{width:19px;height:19px;accent-color:var(--teal)}
+.cl-item.done label{text-decoration:line-through;color:#b3ac9c}
+.cl-item label{flex:1;cursor:pointer}
+.cl-add{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.cl-add input,.cl-add select{border:1.5px solid var(--line);border-radius:12px;padding:10px 12px}
+.cl-add input{flex:2;min-width:140px}.cl-add select{flex:1;min-width:110px}
+
+/* ── trips manager ── */
+.trip-row{display:flex;align-items:center;gap:10px;padding:12px 10px;border:1.5px solid var(--line);border-radius:14px;margin-bottom:10px;cursor:pointer;transition:.15s}
+.trip-row:hover{border-color:var(--teal)}
+.trip-row.cur{border-color:var(--teal);background:#f2f4ec}
+.trip-row .ti{flex:1}
+.trip-row .tn{font-weight:900}
+.trip-row .tm{font-size:.8rem;color:var(--sub)}
+.badge{font-size:.72rem;background:var(--grad);color:#fff;border-radius:999px;padding:2px 9px;font-weight:700}
+
+/* ── cloud ── */
+.cloud-status{font-size:.85rem;background:#f2f4ec;border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:14px;color:var(--sub)}
+.cloud-status b{color:var(--teal-d)}
+
+/* ── modal ── */
+.modal-bg{position:fixed;inset:0;background:rgba(20,60,55,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border-radius:20px;width:100%;max-width:460px;padding:24px;max-height:92vh;overflow-y:auto}
+.modal h3{font-weight:900;margin-bottom:16px}
+.field{margin-bottom:13px}
+.field label{display:block;font-size:.82rem;font-weight:700;color:var(--sub);margin-bottom:5px}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.modal-acts{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+
+.fab{position:fixed;right:22px;bottom:22px;width:58px;height:58px;border-radius:50%;background:var(--grad);color:#fff;border:none;font-size:1.7rem;box-shadow:0 8px 24px rgba(20,150,140,.4);display:none;z-index:20}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 20px;border-radius:999px;font-size:.9rem;opacity:0;transition:.3s;z-index:60;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family:var(--serif);letter-spacing:2px}
+/* 地點搜尋結果 */
+.geo-row{position:relative}
+.geo-btn{position:absolute;right:6px;top:31px;border:none;background:var(--grad);color:#fff;border-radius:9px;padding:6px 12px;font-size:.8rem;font-weight:700}
+.geo-results{border:1.5px solid var(--line);border-radius:12px;margin-top:6px;overflow:hidden;display:none;background:#fffefa}
+.geo-results.open{display:block}
+.geo-item{padding:10px 12px;border-bottom:1px dashed var(--line);cursor:pointer;font-size:.88rem}
+.geo-item:last-child{border-bottom:none}
+.geo-item:hover{background:#f2f4ec}
+.geo-item .gn{font-weight:700}
+.geo-item .ga{font-size:.78rem;color:var(--sub);margin-top:2px}
+.geo-hint{font-size:.78rem;color:var(--sub);padding:10px 12px}
+@media(max-width:600px){
+  .fx-box{grid-template-columns:1fr}
+  .fx-swap{justify-self:center;transform:rotate(90deg)}
+  .count-cell{min-width:70px;padding:12px 6px}
+  .count-num{font-size:1.7rem}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hwrap">
+    <div>
+      <div class="trip-name" onclick="openTrips()"><span id="hTripName">我的旅程</span><span class="caret">▾</span></div>
+      <div class="trip-dest" id="hTripMeta">📍 目的地 ・ 尚未設定日期</div>
+    </div>
+    <div class="hbtns">
+      <button class="icon-btn" id="cloudBtn" onclick="openCloud()">☁️ 未登入</button>
+      <button class="icon-btn" onclick="openSettings()">⚙️ 旅程設定</button>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <div class="tabs">
+    <button class="tab active" data-tab="home"><span class="em">🏠</span>首頁</button>
+    <button class="tab" data-tab="plan"><span class="em">🗓️</span>行程</button>
+    <button class="tab" data-tab="fx"><span class="em">💱</span>匯率</button>
+    <button class="tab" data-tab="list"><span class="em">🎒</span>清單</button>
+  </div>
+</nav>
+
+<main>
+  <!-- 首頁 -->
+  <section id="sec-home" class="active">
+    <div class="card count-hero">
+      <div class="count-label" id="countLabel">✈️ 距離出發還有</div>
+      <div class="count-grid" id="countGrid">
+        <div class="count-cell"><div class="count-num" id="cd-d">--</div><div class="count-unit">天</div></div>
+        <div class="count-cell"><div class="count-num" id="cd-h">--</div><div class="count-unit">時</div></div>
+        <div class="count-cell"><div class="count-num" id="cd-m">--</div><div class="count-unit">分</div></div>
+        <div class="count-cell"><div class="count-num" id="cd-s">--</div><div class="count-unit">秒</div></div>
+      </div>
+      <div class="muted" id="countSub">請先到「旅程設定」選擇出發時間</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><b id="stDays">-</b><span>旅程天數</span></div>
+      <div class="stat"><b id="stSpots">0</b><span>行程項目</span></div>
+      <div class="stat"><b id="stPack">0%</b><span>行前準備</span></div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <h2><span class="dot"></span>分享與備份</h2>
+      <p class="muted" style="margin-bottom:12px">「分享連結」會把目前這份旅程送給旅伴（載入後成為對方的新旅程）；「匯出備份」則包含你全部的旅程。</p>
+      <div class="share-row">
+        <button class="btn btn-p" onclick="shareLink()">🔗 複製分享連結</button>
+        <button class="btn btn-o" onclick="exportJSON()">⬇️ 匯出備份</button>
+        <button class="btn btn-o" onclick="document.getElementById('importFile').click()">⬆️ 匯入備份</button>
+        <button class="btn btn-ghost" onclick="resetAll()">重設全部</button>
+        <input type="file" id="importFile" accept=".json" hidden onchange="importJSON(this)">
+      </div>
+    </div>
+  </section>
+
+  <!-- 行程 -->
+  <section id="sec-plan">
+    <div class="day-chips" id="dayChips"></div>
+    <div class="plan-tools"><button class="mini" onclick="sortDayByTime()">⏱ 這天依時間重新排序</button></div>
+    <div class="card" id="planList"></div>
+  </section>
+
+  <!-- 匯率 -->
+  <section id="sec-fx">
+    <div class="card">
+      <h2><span class="dot"></span>即時匯率換算</h2>
+      <div class="fx-box">
+        <div>
+          <label id="fxLabelA">外幣</label>
+          <select id="fxCur" onchange="fxChanged()"></select>
+          <input type="number" id="fxAmtA" placeholder="金額" style="margin-top:8px" oninput="fxCalc('A')">
+        </div>
+        <button class="fx-swap" onclick="fxSwap()" title="交換方向">⇄</button>
+        <div>
+          <label>新台幣 TWD</label>
+          <input type="number" id="fxAmtB" placeholder="金額" oninput="fxCalc('B')">
+          <div style="height:8px"></div>
+        </div>
+      </div>
+      <div class="fx-meta" id="fxMeta">匯率載入中…</div>
+    </div>
+    <div class="card">
+      <h2><span class="dot"></span>常用面額速查</h2>
+      <table class="fx-table" id="fxQuick"></table>
+    </div>
+  </section>
+
+  <!-- 清單 -->
+  <section id="sec-list">
+    <div class="card">
+      <h2><span class="dot"></span>出發前準備清單 <span class="muted" id="clCount"></span></h2>
+      <div class="progress"><i id="clBar" style="width:0%"></i></div>
+      <div id="clWrap"></div>
+      <div class="cl-add">
+        <input id="clNewText" placeholder="新增項目，例如：口罩" onkeydown="if(event.key==='Enter')addCl()">
+        <select id="clNewCat"></select>
+        <button class="btn btn-p" onclick="addCl()">＋ 新增</button>
+      </div>
+      <div style="margin-top:14px"><button class="btn btn-ghost" onclick="resetChecklist()">還原預設清單</button></div>
+    </div>
+  </section>
+</main>
+
+<button class="fab" id="fab" onclick="openItem()">＋</button>
+<div class="toast" id="toast"></div>
+
+<!-- 行程項目 modal -->
+<div class="modal-bg" id="itemModal">
+  <div class="modal">
+    <h3 id="itemModalTitle">新增行程</h3>
+    <div class="frow">
+      <div class="field"><label>天數</label><select id="fDay"></select></div>
+      <div class="field"><label>時間</label><input type="time" id="fTime" value="09:00"></div>
+    </div>
+    <div class="field geo-row"><label>景點 / 餐廳 / 飯店名稱 *</label>
+      <input id="fTitle" placeholder="輸入名稱後按「搜尋」自動帶入地址電話" onkeydown="if(event.key==='Enter'){event.preventDefault();geoSearch();}">
+      <button type="button" class="geo-btn" onclick="geoSearch()">🔍 搜尋</button>
+      <div class="geo-results" id="geoResults"></div>
+    </div>
+    <div class="field"><label>地址（用於導航）</label><input id="fLoc" placeholder="可自動帶入或手動輸入"></div>
+    <div class="field"><label>電話</label><input id="fPhone" placeholder="可自動帶入或手動輸入" type="tel"></div>
+    <div class="field"><label>備註</label><textarea id="fNote" rows="2" placeholder="門票、預約時間、注意事項…"></textarea></div>
+    <div class="modal-acts">
+      <button class="btn btn-ghost" onclick="closeModal('itemModal')">取消</button>
+      <button class="btn btn-p" onclick="saveItem()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 旅程設定 modal -->
+<div class="modal-bg" id="setModal">
+  <div class="modal">
+    <h3>⚙️ 旅程設定</h3>
+    <div class="field"><label>旅程名稱</label><input id="sName" placeholder="例如：東京五日遊"></div>
+    <div class="field"><label>目的地</label><input id="sDest" placeholder="例如：日本・東京"></div>
+    <div class="field"><label>出發時間</label><input type="datetime-local" id="sStart"></div>
+    <div class="field"><label>回程日期</label><input type="date" id="sEnd"></div>
+    <div class="field"><label>當地貨幣</label><select id="sCur"></select></div>
+    <div class="modal-acts">
+      <button class="btn btn-ghost" onclick="closeModal('setModal')">取消</button>
+      <button class="btn btn-p" onclick="saveSettings()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 我的旅程 modal -->
+<div class="modal-bg" id="tripsModal">
+  <div class="modal">
+    <h3>🧳 我的旅程</h3>
+    <div id="tripsList"></div>
+    <div class="modal-acts" style="justify-content:space-between">
+      <button class="btn btn-p" onclick="addTrip()">＋ 新增旅程</button>
+      <button class="btn btn-ghost" onclick="closeModal('tripsModal')">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- 雲端同步 modal -->
+<div class="modal-bg" id="cloudModal">
+  <div class="modal">
+    <h3>☁️ 帳號與雲端同步</h3>
+    <div id="cloudBody"></div>
+  </div>
+</div>
+
+<footer>旅圖 TripCanvas ・ Jason's Life 開發旅程規劃工具</footer>
+
+<script>
+/* ================= 設定 =================
+   部署自己的後端後，把 Apps Script Web App 網址貼在下面（詳見 README）。
+   留空 = 純本機模式（沒有帳號功能，其他功能不受影響）。 */
+const API_URL = 'https://script.google.com/macros/s/AKfycbzaTFAXMBYhm0rxkAFEZjhgKgVFUNv0Otfdv2uImXpNGDlIDOvsKmGLR_znWRfPOVQ-/exec';
+
+/* ================= 資料 ================= */
+const LS_KEY = 'tripcanvas_v2';
+const LS_KEY_V1 = 'tripcanvas_v1';
+const CURRENCIES = [
+  ['JPY','日圓 JPY'],['KRW','韓元 KRW'],['USD','美元 USD'],['EUR','歐元 EUR'],
+  ['THB','泰銖 THB'],['VND','越南盾 VND'],['SGD','新加坡幣 SGD'],['HKD','港幣 HKD'],
+  ['CNY','人民幣 CNY'],['MYR','馬來西亞令吉 MYR'],['PHP','菲律賓披索 PHP'],
+  ['IDR','印尼盾 IDR'],['GBP','英鎊 GBP'],['AUD','澳幣 AUD'],['CHF','瑞士法郎 CHF'],['CAD','加幣 CAD']
+];
+const DEFAULT_CHECKLIST = [
+  ['證件文件','護照（效期6個月以上）'],['證件文件','電子機票 / 登機證'],['證件文件','訂房確認信'],
+  ['證件文件','簽證 / 入境卡 / 電子入境申報'],['證件文件','旅遊平安險'],
+  ['金錢','外幣現金'],['金錢','信用卡（開通海外刷卡）'],['金錢','緊急備用金分開放'],
+  ['3C 用品','手機 + 充電線'],['3C 用品','行動電源（≤100Wh 隨身帶上飛機）'],['3C 用品','萬用轉接頭'],['3C 用品','網卡 / eSIM / 開通漫遊'],
+  ['衣物盥洗','換洗衣物'],['衣物盥洗','盥洗用品（液體≤100ml 隨身）'],['衣物盥洗','雨具 / 防曬'],
+  ['藥品健康','個人常用藥'],['藥品健康','腸胃藥 / 感冒藥 / OK繃'],
+  ['其他','行李秤重（避免超重）'],['其他','家中門窗瓦斯確認'],['其他','護照影本 / 大頭照2張（備用）']
+];
+const CATS = ['證件文件','金錢','3C 用品','衣物盥洗','藥品健康','其他'];
+
+function uid(){ return 'i'+Date.now()+Math.random().toString(36).slice(2,6); }
+function defaultChecklist(){ return DEFAULT_CHECKLIST.map((c,i)=>({id:'c'+i+Math.random().toString(36).slice(2,5),cat:c[0],text:c[1],done:false})); }
+function newTrip(name){
+  return { id:uid(), trip:{name:name||'我的旅程',dest:'',start:'',end:'',currency:'JPY'},
+           items:[], checklist:defaultChecklist(), updatedAt:Date.now() };
+}
+function defaultState(){
+  const t=newTrip();
+  return { trips:[t], activeId:t.id, account:null };
+}
+function migrate(){
+  try{
+    const old=localStorage.getItem(LS_KEY_V1);
+    if(!old) return null;
+    const j=JSON.parse(old);
+    const t={ id:uid(), trip:j.trip||{name:'我的旅程',dest:'',start:'',end:'',currency:'JPY'},
+              items:j.items||[], checklist:j.checklist||defaultChecklist(), updatedAt:Date.now() };
+    localStorage.removeItem(LS_KEY_V1);
+    return { trips:[t], activeId:t.id, account:null };
+  }catch(e){ return null; }
+}
+let state = load();
+function load(){
+  try{ const raw=localStorage.getItem(LS_KEY); if(raw) return JSON.parse(raw); }catch(e){}
+  return migrate() || defaultState();
+}
+function T(){ // 目前作用中的旅程
+  let t=state.trips.find(x=>x.id===state.activeId);
+  if(!t){ t=state.trips[0]; if(!t){ t=newTrip(); state.trips.push(t); } state.activeId=t.id; }
+  return t;
+}
+function save(touch){
+  if(touch!==false) T().updatedAt=Date.now();
+  localStorage.setItem(LS_KEY, JSON.stringify(state));
+  scheduleCloudSave();
+}
+
+/* ================= 工具 ================= */
+const $ = id => document.getElementById(id);
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2400); }
+function esc(s){ return (s||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function tripDays(){
+  const tr=T().trip;
+  if(!tr.start||!tr.end) return 0;
+  const a=new Date(tr.start.slice(0,10)), b=new Date(tr.end);
+  return Math.max(1, Math.round((b-a)/86400000)+1);
+}
+function dayLabel(d){
+  const tr=T().trip;
+  if(!tr.start) return 'Day '+d;
+  const dt=new Date(tr.start.slice(0,10)); dt.setDate(dt.getDate()+d-1);
+  const w='日一二三四五六'[dt.getDay()];
+  return `Day ${d}・${dt.getMonth()+1}/${dt.getDate()}(${w})`;
+}
+
+/* ================= 分頁 ================= */
+let curTab='home', curDay=1;
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+function switchTab(t){
+  curTab=t;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
+  document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));
+  $('sec-'+t).classList.add('active');
+  $('fab').style.display = t==='plan' ? 'block':'none';
+}
+
+/* ================= 首頁 / 倒數 ================= */
+function renderHeader(){
+  const tr=T().trip;
+  $('hTripName').textContent = tr.name || '我的旅程';
+  let meta = '📍 ' + (tr.dest || '目的地未設定');
+  if(tr.start){
+    meta += ' ・ ' + tr.start.slice(0,10).replaceAll('-','/');
+    if(tr.end) meta += ' ～ ' + tr.end.replaceAll('-','/');
+  }
+  if(state.trips.length>1) meta += `　(${state.trips.length} 個旅程)`;
+  $('hTripMeta').textContent = meta;
+}
+function renderStats(){
+  const t=T();
+  $('stDays').textContent = tripDays()||'-';
+  $('stSpots').textContent = t.items.length;
+  const total=t.checklist.length, done=t.checklist.filter(c=>c.done).length;
+  $('stPack').textContent = total? Math.round(done/total*100)+'%':'0%';
+}
+function tick(){
+  const tr=T().trip;
+  if(!tr.start){
+    $('countLabel').textContent='✈️ 距離出發還有';
+    $('countSub').textContent='請先到「旅程設定」選擇出發時間';
+    ['cd-d','cd-h','cd-m','cd-s'].forEach(i=>$(i).textContent='--');
+    return;
+  }
+  const now=new Date(), dep=new Date(tr.start);
+  const end=tr.end? new Date(tr.end+'T23:59:59'):null;
+  let diff=dep-now;
+  if(diff<=0 && end && now<=end){
+    const dnum=Math.floor((now-new Date(tr.start.slice(0,10)))/86400000)+1;
+    $('countLabel').textContent='🌏 旅程進行中｜距離回程';
+    $('countSub').textContent=`今天是旅程第 ${dnum} 天，玩得開心！`;
+    diff=end-now;
+  }else if(diff<=0){
+    $('countLabel').textContent='🏡 旅程已結束';
+    $('countSub').textContent='期待下一次出發！';
+    ['cd-d','cd-h','cd-m','cd-s'].forEach(i=>$(i).textContent='0');
+    return;
+  }else{
+    $('countLabel').textContent='✈️ 距離出發還有';
+    $('countSub').textContent=`出發時間：${tr.start.replace('T',' ')}`;
+  }
+  const d=Math.floor(diff/86400000), h=Math.floor(diff%86400000/3600000),
+        m=Math.floor(diff%3600000/60000), s=Math.floor(diff%60000/1000);
+  $('cd-d').textContent=d; $('cd-h').textContent=String(h).padStart(2,'0');
+  $('cd-m').textContent=String(m).padStart(2,'0'); $('cd-s').textContent=String(s).padStart(2,'0');
+}
+setInterval(tick,1000);
+
+/* ================= 多行程管理 ================= */
+function openTrips(){ renderTrips(); $('tripsModal').classList.add('open'); }
+function renderTrips(){
+  $('tripsList').innerHTML = state.trips.map(t=>{
+    const cur=t.id===state.activeId;
+    const dates=t.trip.start? t.trip.start.slice(0,10).replaceAll('-','/')+(t.trip.end?' ～ '+t.trip.end.replaceAll('-','/'):''):'尚未設定日期';
+    return `<div class="trip-row ${cur?'cur':''}" onclick="switchTrip('${t.id}')">
+      <div class="ti">
+        <div class="tn">${esc(t.trip.name)} ${cur?'<span class="badge">目前</span>':''}</div>
+        <div class="tm">📍 ${esc(t.trip.dest)||'未設定'} ・ ${dates} ・ ${t.items.length} 個行程</div>
+      </div>
+      ${state.trips.length>1?`<button class="mini del" onclick="event.stopPropagation();delTrip('${t.id}')">刪除</button>`:''}
+    </div>`;
+  }).join('');
+}
+function switchTrip(id){
+  if(id===state.activeId){ closeModal('tripsModal'); return; }
+  state.activeId=id; curDay=1; save(false);
+  closeModal('tripsModal'); renderAll();
+  toast('已切換到「'+T().trip.name+'」');
+}
+function addTrip(){
+  const name=prompt('新旅程名稱：','新的旅程');
+  if(name===null) return;
+  const t=newTrip(name.trim()||'新的旅程');
+  state.trips.push(t); state.activeId=t.id; curDay=1;
+  save(); closeModal('tripsModal'); renderAll(); openSettings();
+}
+function delTrip(id){
+  const t=state.trips.find(x=>x.id===id);
+  if(!confirm(`確定刪除旅程「${t.trip.name}」？此動作無法復原。`)) return;
+  state.trips=state.trips.filter(x=>x.id!==id);
+  if(state.activeId===id) state.activeId=state.trips[0].id;
+  save(); renderTrips(); renderAll();
+}
+
+/* ================= 行程 ================= */
+function renderPlan(){
+  const days=Math.max(tripDays(),1);
+  if(curDay>days) curDay=1;
+  $('dayChips').innerHTML = Array.from({length:days},(_,i)=>
+    `<button class="chip ${i+1===curDay?'active':''}" onclick="curDay=${i+1};renderPlan()">${dayLabel(i+1)}</button>`).join('');
+  // 依使用者自訂順序顯示（陣列順序），可用 ▲▼ 自由挪動
+  const items=T().items.filter(x=>x.day===curDay);
+  if(!items.length){
+    $('planList').innerHTML=`<div class="empty"><span class="em">🗺️</span>這天還沒有行程<br><span class="muted">按右下角「＋」新增第一個景點吧</span></div>`;
+    return;
+  }
+  $('planList').innerHTML = items.map((x,idx)=>`
+    <div class="it-item">
+      <div class="it-time">${esc(x.time)||'--:--'}</div>
+      <div class="it-body">
+        <div class="it-title">${esc(x.title)}</div>
+        ${x.loc?`<div class="it-loc">📍 ${esc(x.loc)}</div>`:''}
+        ${x.phone?`<div class="it-phone">📞 ${esc(x.phone)}</div>`:''}
+        ${x.note?`<div class="it-note">📝 ${esc(x.note)}</div>`:''}
+      </div>
+      <div class="it-acts">
+        <div class="move-group">
+          <button class="mini" onclick="moveItem('${x.id}',-1)" ${idx===0?'disabled':''}>▲</button>
+          <button class="mini" onclick="moveItem('${x.id}',1)" ${idx===items.length-1?'disabled':''}>▼</button>
+        </div>
+        ${(x.loc||x.lat)?`<button class="mini nav-btn" onclick="navTo('${x.id}')">🧭 導航</button>`:''}
+        ${x.phone?`<button class="mini call-btn" onclick="callTo('${x.id}')">📞 打電話</button>`:''}
+        <button class="mini" onclick="openItem('${x.id}')">編輯</button>
+        <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
+      </div>
+    </div>`).join('');
+}
+function moveItem(id,dir){
+  const all=T().items;
+  const dayIds=all.filter(x=>x.day===curDay).map(x=>x.id); // 這天的順序
+  const pos=dayIds.indexOf(id), newPos=pos+dir;
+  if(pos<0||newPos<0||newPos>=dayIds.length) return;
+  const i=all.findIndex(x=>x.id===dayIds[pos]);
+  const j=all.findIndex(x=>x.id===dayIds[newPos]);
+  [all[i],all[j]]=[all[j],all[i]]; // 交換整體陣列中的位置
+  save(); renderPlan();
+}
+function sortDayByTime(){
+  const all=T().items;
+  const dayItems=all.filter(x=>x.day===curDay);
+  if(dayItems.length<2){ toast('這天的行程不足兩項'); return; }
+  const sorted=[...dayItems].sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+  let k=0;
+  for(let i=0;i<all.length;i++){ if(all[i].day===curDay){ all[i]=sorted[k++]; } }
+  save(); renderPlan(); toast('已依時間排序 ✅');
+}
+/* 韓國判斷：Google Maps 在韓國無法導航，自動改用 Naver Map */
+function isKoreaItem(x){
+  if(T().trip.currency==='KRW') return true;
+  if(/韓國|korea|首爾|釜山|濟州|大邱|仁川|서울/i.test(T().trip.dest||'')) return true;
+  if(x&&x.lat&&x.lon){ // 南韓經緯度範圍
+    const la=+x.lat, lo=+x.lon;
+    if(la>=33&&la<=38.7&&lo>=124.5&&lo<=131.5) return true;
+  }
+  return false;
+}
+function navTo(id){
+  const x=T().items.find(i=>i.id===id);
+  if(!x) return;
+  if(isKoreaItem(x)){ navNaver(x); return; }
+  // 有精確座標優先用座標導航（避免同名地點誤導），否則用地址
+  const dest = (x.lat&&x.lon)? x.lat+','+x.lon : x.loc;
+  if(!dest) return;
+  window.open('https://www.google.com/maps/dir/?api=1&travelmode=transit&destination='+encodeURIComponent(dest),'_blank');
+}
+function navNaver(x){
+  const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
+  const q=encodeURIComponent(x.title+(x.loc?' '+x.loc.split(',')[0]:''));
+  if(isMobile){
+    // 先嘗試喚起 Naver Map App（大眾運輸路線），1.5 秒沒反應則退回網頁版
+    const app=(x.lat&&x.lon)
+      ? 'nmap://route/public?dlat='+x.lat+'&dlng='+x.lon+'&dname='+encodeURIComponent(x.title)+'&appname=tripcanvas'
+      : 'nmap://search?query='+q+'&appname=tripcanvas';
+    const t=setTimeout(()=>{ if(!document.hidden) window.open('https://map.naver.com/p/search/'+q,'_blank'); },1500);
+    window.addEventListener('visibilitychange',()=>{ if(document.hidden) clearTimeout(t); },{once:true});
+    location.href=app;
+  }else{
+    window.open('https://map.naver.com/p/search/'+q,'_blank');
+  }
+}
+function callTo(id){
+  const x=T().items.find(i=>i.id===id);
+  if(!x||!x.phone) return;
+  location.href='tel:'+x.phone.replace(/[^\d+]/g,'');
+}
+
+/* ── 地點搜尋（OpenStreetMap Nominatim，免金鑰）── */
+let _geoResults=[], _geoPicked=null;
+async function geoSearch(){
+  const q=$('fTitle').value.trim();
+  const box=$('geoResults');
+  if(!q){ toast('請先輸入名稱再搜尋'); return; }
+  box.innerHTML='<div class="geo-hint">搜尋中…</div>'; box.classList.add('open');
+  try{
+    // 加上目的地提高準確度，例如在「東京」旅程搜「一蘭」
+    const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.]/g,' '):'';
+    const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language=zh-TW&q='+encodeURIComponent(q+dest);
+    let list=await (await fetch(url)).json();
+    if(!list.length && dest){ // 加目的地找不到就退回只搜名稱
+      list=await (await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language=zh-TW&q='+encodeURIComponent(q))).json();
+    }
+    _geoResults=list;
+    if(!list.length){ box.innerHTML='<div class="geo-hint">找不到這個地點，可改試「名稱＋城市」或直接手動填地址</div>'; return; }
+    box.innerHTML=list.map((r,i)=>{
+      const ex=r.extratags||{};
+      const phone=ex.phone||ex['contact:phone']||'';
+      return `<div class="geo-item" onclick="geoPick(${i})">
+        <div class="gn">${esc(r.name||r.display_name.split(',')[0])}</div>
+        <div class="ga">${esc(r.display_name)}${phone?'　📞 '+esc(phone):''}</div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    box.innerHTML='<div class="geo-hint">⚠️ 搜尋服務暫時無法使用，請手動輸入地址</div>';
+  }
+}
+function geoPick(i){
+  const r=_geoResults[i]; if(!r) return;
+  const ex=r.extratags||{};
+  if(r.name) $('fTitle').value=r.name;
+  $('fLoc').value=r.display_name||'';
+  const phone=ex.phone||ex['contact:phone']||'';
+  if(phone) $('fPhone').value=phone;
+  _geoPicked={lat:r.lat,lon:r.lon};
+  $('geoResults').classList.remove('open');
+  toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此地點無電話資料）✅');
+}
+let editingId=null;
+function openItem(id){
+  editingId=id||null; _geoPicked=null; _geoResults=[];
+  $('geoResults').classList.remove('open'); $('geoResults').innerHTML='';
+  const days=Math.max(tripDays(),1);
+  $('fDay').innerHTML=Array.from({length:days},(_,i)=>`<option value="${i+1}">${dayLabel(i+1)}</option>`).join('');
+  if(id){
+    const x=T().items.find(i=>i.id===id);
+    $('itemModalTitle').textContent='編輯行程';
+    $('fDay').value=x.day; $('fTime').value=x.time||'09:00';
+    $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||''; $('fNote').value=x.note||'';
+    if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
+  }else{
+    $('itemModalTitle').textContent='新增行程';
+    $('fDay').value=curDay; $('fTime').value='09:00';
+    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fNote').value='';
+  }
+  $('itemModal').classList.add('open');
+}
+function saveItem(){
+  const title=$('fTitle').value.trim();
+  if(!title){ toast('請輸入行程名稱'); return; }
+  const data={day:+$('fDay').value,time:$('fTime').value,title,
+              loc:$('fLoc').value.trim(),phone:$('fPhone').value.trim(),note:$('fNote').value.trim(),
+              lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:''};
+  if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
+  else{ T().items.push({id:uid(),...data}); }
+  save(); closeModal('itemModal'); curDay=data.day; renderPlan(); renderStats(); toast('已儲存 ✅');
+}
+function delItem(id){
+  if(!confirm('確定刪除這個行程？')) return;
+  T().items=T().items.filter(i=>i.id!==id);
+  save(); renderPlan(); renderStats();
+}
+
+/* ================= 匯率 ================= */
+let rates=null, ratesTime='';
+async function loadRates(){
+  try{
+    const r=await fetch('https://open.er-api.com/v6/latest/TWD');
+    const j=await r.json();
+    if(j.result==='success'){
+      rates=j.rates; ratesTime=new Date(j.time_last_update_unix*1000).toLocaleString('zh-TW');
+      $('fxMeta').textContent='';
+      fxChanged();
+      return;
+    }
+    throw 0;
+  }catch(e){
+    $('fxMeta').textContent='⚠️ 無法載入即時匯率，請檢查網路後重新整理。';
+  }
+}
+function fxRate(cur){ return rates? rates[cur]:null; } // 1 TWD = ? cur
+function fxChanged(){
+  const cur=$('fxCur').value;
+  $('fxLabelA').textContent = (CURRENCIES.find(c=>c[0]===cur)||[cur,cur])[1];
+  const r=fxRate(cur);
+  if(r){
+    $('fxMeta').innerHTML=`1 ${cur} ≈ <b>${(1/r).toFixed(4)}</b> TWD ｜ 100 TWD ≈ <b>${(100*r).toFixed(2)}</b> ${cur}<br>資料更新：${ratesTime}（來源：open.er-api.com，每日更新）`;
+  }
+  fxCalc('A'); renderFxQuick();
+  T().trip.currency=cur; save(false);
+}
+function fxCalc(from){
+  const cur=$('fxCur').value, r=fxRate(cur);
+  if(!r) return;
+  if(from==='A'){
+    const v=parseFloat($('fxAmtA').value);
+    $('fxAmtB').value = isNaN(v)?'':(v/r).toFixed(2);
+  }else{
+    const v=parseFloat($('fxAmtB').value);
+    $('fxAmtA').value = isNaN(v)?'':(v*r).toFixed(2);
+  }
+}
+function fxSwap(){
+  const a=$('fxAmtA').value; $('fxAmtA').value=$('fxAmtB').value; $('fxAmtB').value=a; fxCalc('A');
+}
+function renderFxQuick(){
+  const cur=$('fxCur').value, r=fxRate(cur);
+  if(!r){ $('fxQuick').innerHTML=''; return; }
+  const denoms={JPY:[100,500,1000,5000,10000],KRW:[1000,5000,10000,50000],VND:[10000,50000,100000,500000],IDR:[10000,50000,100000]}[cur]||[1,10,50,100,500];
+  $('fxQuick').innerHTML = denoms.map(d=>
+    `<tr><td>${d.toLocaleString()} ${cur}</td><td>≈ ${(d/r).toLocaleString('zh-TW',{maximumFractionDigits:0})} 元台幣</td></tr>`).join('');
+}
+
+/* ================= 清單 ================= */
+function renderChecklist(){
+  const list=T().checklist;
+  let html='';
+  CATS.forEach(cat=>{
+    const items=list.filter(c=>c.cat===cat);
+    if(!items.length) return;
+    html+=`<div class="cl-cat">${cat}</div>`;
+    html+=items.map(c=>`
+      <div class="cl-item ${c.done?'done':''}">
+        <input type="checkbox" id="${c.id}" ${c.done?'checked':''} onchange="toggleCl('${c.id}')">
+        <label for="${c.id}">${esc(c.text)}</label>
+        <button class="mini del" onclick="delCl('${c.id}')">✕</button>
+      </div>`).join('');
+  });
+  $('clWrap').innerHTML=html;
+  const total=list.length, done=list.filter(c=>c.done).length;
+  $('clBar').style.width=(total?done/total*100:0)+'%';
+  $('clCount').textContent=`（${done}/${total}）`;
+  renderStats();
+}
+function toggleCl(id){ const c=T().checklist.find(x=>x.id===id); c.done=!c.done; save(); renderChecklist(); }
+function delCl(id){ T().checklist=T().checklist.filter(x=>x.id!==id); save(); renderChecklist(); }
+function addCl(){
+  const t=$('clNewText').value.trim(); if(!t){toast('請輸入項目名稱');return;}
+  T().checklist.push({id:uid(),cat:$('clNewCat').value,text:t,done:false});
+  $('clNewText').value=''; save(); renderChecklist(); toast('已新增 ✅');
+}
+function resetChecklist(){
+  if(!confirm('還原為預設清單？自訂項目與勾選狀態會清除。')) return;
+  T().checklist=defaultChecklist();
+  save(); renderChecklist();
+}
+
+/* ================= 設定 ================= */
+function openSettings(){
+  const tr=T().trip;
+  $('sName').value=tr.name; $('sDest').value=tr.dest;
+  $('sStart').value=tr.start; $('sEnd').value=tr.end;
+  $('sCur').value=tr.currency;
+  $('setModal').classList.add('open');
+}
+function saveSettings(){
+  const tr=T().trip;
+  tr.name=$('sName').value.trim()||'我的旅程';
+  tr.dest=$('sDest').value.trim();
+  tr.start=$('sStart').value;
+  tr.end=$('sEnd').value;
+  tr.currency=$('sCur').value;
+  save(); closeModal('setModal');
+  $('fxCur').value=tr.currency;
+  renderAll(); toast('設定已儲存 ✅');
+}
+function closeModal(id){ $(id).classList.remove('open'); }
+document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
+
+/* ================= 帳號 / 雲端同步 ================= */
+let syncTimer=null, syncing=false, lastSyncText='';
+function cloudPayload(){ return JSON.stringify({trips:state.trips, activeId:state.activeId}); }
+async function api(action, params){
+  const res=await fetch(API_URL,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'}, // text/plain 避免 CORS preflight
+    body:JSON.stringify({action,...params})
+  });
+  return res.json();
+}
+function renderCloudBtn(){
+  $('cloudBtn').textContent = state.account? '☁️ '+state.account.user : '☁️ 未登入';
+}
+function openCloud(){ renderCloudBody(); $('cloudModal').classList.add('open'); }
+function renderCloudBody(){
+  const b=$('cloudBody');
+  if(!API_URL){
+    b.innerHTML=`<div class="cloud-status">此網站目前為<b>純本機模式</b>：行程只儲存在你的瀏覽器。<br><br>
+      網站管理者若想開啟「帳號登入＋跨裝置雲端同步」，請依照 README 部署 Google Apps Script 後端，並把網址填入 index.html 的 <b>API_URL</b>。</div>
+      <div class="modal-acts"><button class="btn btn-ghost" onclick="closeModal('cloudModal')">關閉</button></div>`;
+    return;
+  }
+  if(!state.account){
+    b.innerHTML=`<div class="cloud-status">登入後，你的所有旅程會同步到雲端，換手機、換電腦都能接續編輯。</div>
+      <div class="field"><label>帳號（3-20 字元）</label><input id="cUser" placeholder="例如：jason"></div>
+      <div class="field"><label>密碼（至少 6 字元）</label><input id="cPass" type="password"></div>
+      <div class="modal-acts">
+        <button class="btn btn-ghost" onclick="closeModal('cloudModal')">取消</button>
+        <button class="btn btn-o" onclick="doRegister()">註冊新帳號</button>
+        <button class="btn btn-p" onclick="doLogin()">登入</button>
+      </div>`;
+  }else{
+    b.innerHTML=`<div class="cloud-status">已登入：<b>${esc(state.account.user)}</b><br>${lastSyncText||'尚未同步'}</div>
+      <div class="modal-acts" style="justify-content:flex-start">
+        <button class="btn btn-p" onclick="cloudSave(true)">⬆️ 立即上傳</button>
+        <button class="btn btn-o" onclick="cloudLoad(true)">⬇️ 從雲端下載</button>
+        <button class="btn btn-ghost" onclick="doLogout()">登出</button>
+        <button class="btn btn-ghost" onclick="closeModal('cloudModal')">關閉</button>
+      </div>`;
+  }
+}
+async function doRegister(){
+  const u=$('cUser').value.trim(), p=$('cPass').value;
+  if(u.length<3||u.length>20){toast('帳號需 3-20 字元');return;}
+  if(p.length<6){toast('密碼至少 6 字元');return;}
+  try{
+    const r=await api('register',{user:u,pass:p});
+    if(r.error){toast('❌ '+r.error);return;}
+    state.account={user:u,token:r.token}; save(false);
+    renderCloudBtn(); renderCloudBody();
+    toast('註冊成功，已登入 ✅'); cloudSave();
+  }catch(e){ toast('❌ 連線失敗，請稍後再試'); }
+}
+async function doLogin(){
+  const u=$('cUser').value.trim(), p=$('cPass').value;
+  if(!u||!p){toast('請輸入帳號密碼');return;}
+  try{
+    const r=await api('login',{user:u,pass:p});
+    if(r.error){toast('❌ '+r.error);return;}
+    state.account={user:u,token:r.token}; save(false);
+    renderCloudBtn();
+    if(r.hasData){
+      if(confirm('雲端已有你的旅程資料。\n\n按「確定」→ 載入雲端資料（覆蓋此裝置）\n按「取消」→ 保留此裝置資料（可再手動上傳覆蓋雲端）')){
+        await cloudLoad();
+      }
+    }else{
+      cloudSave();
+    }
+    renderCloudBody(); toast('登入成功 ✅');
+  }catch(e){ toast('❌ 連線失敗，請稍後再試'); }
+}
+function doLogout(){
+  if(!confirm('登出後此裝置的資料仍會保留在瀏覽器，但不再自動同步。確定登出？')) return;
+  state.account=null; save(false);
+  renderCloudBtn(); renderCloudBody();
+}
+function scheduleCloudSave(){
+  if(!API_URL||!state.account) return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(()=>cloudSave(),3000);
+}
+async function cloudSave(manual){
+  if(!API_URL||!state.account||syncing) return;
+  syncing=true;
+  try{
+    const r=await api('save',{user:state.account.user,token:state.account.token,data:cloudPayload(),updatedAt:Date.now()});
+    if(r.error){
+      if(manual) toast('❌ '+r.error);
+      if(r.error.includes('登入')) { state.account=null; save(false); renderCloudBtn(); }
+    }else{
+      lastSyncText='上次同步：'+new Date().toLocaleString('zh-TW');
+      if(manual){ toast('已上傳到雲端 ✅'); renderCloudBody(); }
+    }
+  }catch(e){ if(manual) toast('❌ 連線失敗'); }
+  syncing=false;
+}
+async function cloudLoad(manual){
+  if(!API_URL||!state.account) return;
+  try{
+    const r=await api('load',{user:state.account.user,token:state.account.token});
+    if(r.error){ if(manual) toast('❌ '+r.error); return; }
+    if(!r.data){ if(manual) toast('雲端目前沒有資料'); return; }
+    const j=JSON.parse(r.data);
+    if(j.trips&&j.trips.length){
+      state.trips=j.trips;
+      state.activeId=j.activeId&&j.trips.some(t=>t.id===j.activeId)? j.activeId : j.trips[0].id;
+      save(false); renderAll();
+      lastSyncText='上次同步：'+new Date().toLocaleString('zh-TW');
+      if(manual){ toast('已載入雲端資料 ✅'); renderCloudBody(); }
+    }
+  }catch(e){ if(manual) toast('❌ 連線失敗'); }
+}
+
+/* ================= 分享 / 匯出入 ================= */
+function shareLink(){
+  const t=T();
+  const data=btoa(unescape(encodeURIComponent(JSON.stringify({v:2,trip:t}))));
+  const url=location.origin+location.pathname+'#trip='+data;
+  navigator.clipboard.writeText(url).then(()=>toast('分享連結已複製！旅伴打開後會存成一份新旅程 🔗'))
+    .catch(()=>{ prompt('複製此連結分享：',url); });
+}
+function exportJSON(){
+  const blob=new Blob([JSON.stringify({trips:state.trips,activeId:state.activeId},null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='tripcanvas-backup.json'; a.click();
+}
+function importJSON(input){
+  const f=input.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ try{
+      const j=JSON.parse(rd.result);
+      if(j.trips&&Array.isArray(j.trips)){          // v2 備份
+        state.trips=j.trips;
+        state.activeId=j.activeId&&j.trips.some(t=>t.id===j.activeId)? j.activeId : j.trips[0].id;
+      }else if(j.trip&&Array.isArray(j.items)){     // v1 舊備份 → 匯入為新旅程
+        const t={id:uid(),trip:j.trip,items:j.items,checklist:j.checklist||defaultChecklist(),updatedAt:Date.now()};
+        state.trips.push(t); state.activeId=t.id;
+      }else throw 0;
+      save(); renderAll(); toast('匯入成功 ✅');
+    }catch(e){ toast('檔案格式錯誤'); } };
+  rd.readAsText(f); input.value='';
+}
+function loadFromHash(){
+  if(!location.hash.startsWith('#trip=')) return;
+  try{
+    const j=JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(6)))));
+    let t=null;
+    if(j.v===2&&j.trip&&j.trip.trip){ t={...j.trip,id:uid(),updatedAt:Date.now()}; }
+    else if(j.trip&&Array.isArray(j.items)){ t={id:uid(),trip:j.trip,items:j.items,checklist:j.checklist||defaultChecklist(),updatedAt:Date.now()}; }
+    if(t&&confirm(`收到分享的旅程「${t.trip.name}」，要加入我的旅程嗎？\n（會新增一份，不會覆蓋你原本的旅程）`)){
+      state.trips.push(t); state.activeId=t.id; save();
+    }
+    history.replaceState(null,'',location.pathname);
+  }catch(e){}
+}
+function resetAll(){
+  if(!confirm('確定重設全部資料（所有旅程）？此動作無法復原（建議先匯出備份）。')) return;
+  const acc=state.account;
+  state=defaultState(); state.account=acc; save(); renderAll();
+}
+
+/* ================= init ================= */
+function renderAll(){ renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderCloudBtn(); tick();
+  $('fxCur').value=T().trip.currency||'JPY'; if(rates) fxChanged(); }
+(function init(){
+  $('fxCur').innerHTML = CURRENCIES.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('');
+  $('sCur').innerHTML = $('fxCur').innerHTML;
+  $('clNewCat').innerHTML = CATS.map(c=>`<option>${c}</option>`).join('');
+  $('fLoc').addEventListener('input',()=>{_geoPicked=null;}); // 手動改地址時清除舊座標，導航改用新地址
+  loadFromHash();
+  renderAll();
+  loadRates();
+  if(API_URL&&state.account) cloudLoad(); // 開啟頁面時自動拉最新雲端資料
+})();
+</script>
+</body>
+</html>
