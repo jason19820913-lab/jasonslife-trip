@@ -381,7 +381,7 @@ const BLOG_NAME = "Jason's Life";
 /* Google Places API 金鑰（選配）：填入後地點搜尋改用 Google Maps 資料（地址電話最完整）。
    申請：Google Cloud Console → 啟用 Places API (New) → 建立 API 金鑰（建議限制 HTTP referrer）。
    留空則使用免費的 OpenStreetMap。 */
-const GOOGLE_KEY = '';
+const GOOGLE_KEY = 'AIzaSyCZ4YjjDKqQ1erOwCDuU_lgBTK2mzHBdPw';
 
 /* AeroDataBox API 金鑰（選配）：填入後查航班可帶出「表定起降時間」並自動填入行程時間。
    申請：rapidapi.com 搜尋 AeroDataBox → 訂閱免費方案 → 複製 X-RapidAPI-Key。
@@ -682,18 +682,18 @@ async function googleSearch(q){ // Google Places API (New)，需 GOOGLE_KEY
     const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
-        'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.location'},
+        'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location'},
       body:JSON.stringify({textQuery:q,languageCode:geoLang(),pageSize:5})
     });
     const j=await r.json();
     if(!j.places||!j.places.length) return [];
-    // 轉成與 Nominatim 相同的結構
+    // 轉成與 Nominatim 相同的結構（電話：國際格式優先，退回當地格式）
     return j.places.map(p=>({
       name:p.displayName&&p.displayName.text||'',
       display_name:p.formattedAddress||'',
       lat:String(p.location&&p.location.latitude||''),
       lon:String(p.location&&p.location.longitude||''),
-      extratags:{phone:p.internationalPhoneNumber||''}
+      extratags:{phone:p.internationalPhoneNumber||p.nationalPhoneNumber||''}
     }));
   }catch(e){ return null; }
 }
@@ -728,8 +728,7 @@ async function geoSearch(){
   if(_geoResults.length){
     html+=`<div class="geo-sec">📍 地點資料（點選帶入地址電話）</div>`;
     html+=_geoResults.map((r,i)=>{
-      const ex=r.extratags||{};
-      const phone=ex.phone||ex['contact:phone']||'';
+      const phone=osmPhone(r.extratags);
       return `<div class="geo-item" onclick="geoPick(${i})">
         <div class="gn">${esc(r.name||r.display_name.split(',')[0])}</div>
         <div class="ga">${esc(r.display_name)}${phone?'　📞 '+esc(phone):''}</div>
@@ -749,14 +748,13 @@ async function geoSearch(){
 }
 function geoPick(i){
   const r=_geoResults[i]; if(!r) return;
-  const ex=r.extratags||{};
   if(r.name) $('fTitle').value=r.name;
   $('fLoc').value=r.display_name||'';
-  const phone=ex.phone||ex['contact:phone']||'';
+  const phone=osmPhone(r.extratags);
   if(phone) $('fPhone').value=phone;
   _geoPicked={lat:r.lat,lon:r.lon};
   $('geoResults').classList.remove('open');
-  toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此地點無電話資料）✅');
+  toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此資料源無電話，可手動補填）✅');
   transitSearch(false); // 背景自動找最近車站帶入大眾運輸指引
 }
 /* ── 最近車站自動帶入（OpenStreetMap Overpass API，免金鑰）── */
@@ -769,9 +767,24 @@ function haversine(a1,o1,a2,o2){
 function osmName(tags){
   return tags['name:zh-Hant']||tags['name:zh']||tags.name||tags['name:en']||'';
 }
+function osmPhone(ex){ // OSM 電話欄位有多種寫法，全部檢查
+  ex=ex||{};
+  return ex.phone||ex['contact:phone']||ex['contact:mobile']||ex.mobile||ex['phone:mobile']||'';
+}
 async function transitSearch(manual){
-  if(!_geoPicked){ if(manual) toast('請先用「🔍 搜尋」選定地點，才有座標可以找車站'); return; }
-  const la=+_geoPicked.lat, lo=+_geoPicked.lon;
+  // 1. 取得景點的實際座標：優先用搜尋選定的座標，否則以地址反查定位
+  let la,lo;
+  if(_geoPicked){ la=+_geoPicked.lat; lo=+_geoPicked.lon; }
+  else{
+    const addr=$('fLoc').value.trim();
+    if(!addr){ if(manual) toast('請先用「🔍 搜尋」選定地點，或填入地址'); return; }
+    if(manual) toast('以地址定位中…');
+    try{
+      const g=await (await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q='+encodeURIComponent(addr))).json();
+      if(g.length){ la=+g[0].lat; lo=+g[0].lon; _geoPicked={lat:g[0].lat,lon:g[0].lon}; }
+    }catch(e){}
+    if(la===undefined){ if(manual) toast('無法定位這個地址，請確認地址或先用搜尋選定地點'); return; }
+  }
   if(manual) toast('尋找最近車站中…');
   const query=`[out:json][timeout:10];(node(around:1200,${la},${lo})[railway=station];node(around:1200,${la},${lo})[station=subway];node(around:1200,${la},${lo})[railway=subway_entrance];);out body;`;
   const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
@@ -784,23 +797,37 @@ async function transitSearch(manual){
     }catch(e){}
   }
   if(!elements){ if(manual) toast('⚠️ 車站查詢服務暫時無法使用，請手動輸入'); return; }
-  let station=null,stDist=1e9, entrance=null,enDist=1e9;
+  // 2. 分類車站與出口
+  const stations=[], exits=[];
   elements.forEach(el=>{
-    const d=haversine(la,lo,el.lat,el.lon), t=el.tags||{};
-    if(t.railway==='subway_entrance'){ if(d<enDist){ enDist=d; entrance=el; } }
-    else if(osmName(t)){ if(d<stDist){ stDist=d; station=el; } }
+    const t=el.tags||{};
+    if(t.railway==='subway_entrance') exits.push(el);
+    else if(osmName(t)) stations.push(el);
   });
-  if(!station&&!entrance){ if(manual) toast('附近 1.2 公里內找不到車站資料，請手動輸入'); return; }
+  if(!stations.length&&!exits.length){ if(manual) toast('附近 1.2 公里內找不到車站資料，請手動輸入'); return; }
+  // 3. 先鎖定「離景點最近的車站」，再只從該站 300m 內的出口中挑離景點最近者
+  //    （站名與出口必屬同一站，避免兩站之間配錯）
+  stations.sort((a,b)=>haversine(la,lo,a.lat,a.lon)-haversine(la,lo,b.lat,b.lon));
+  const station=stations[0]||null;
+  let exit=null, exitDist=1e9;
+  if(station){
+    exits.forEach(e=>{
+      if(!e.tags.ref) return;
+      if(haversine(station.lat,station.lon,e.lat,e.lon)>300) return; // 不屬於這一站
+      const d=haversine(la,lo,e.lat,e.lon);
+      if(d<exitDist){ exitDist=d; exit=e; }
+    });
+  }
   let text='', dist;
-  if(entrance&&entrance.tags.ref){
-    // 出口通常比車站主點更接近實際步行目標
-    const stName=station? osmName(station.tags):'';
-    dist=enDist;
-    text=(stName?stName.replace(/站$/,'')+'站 ':'')+entrance.tags.ref+' 號出口';
-  }else if(station){
-    dist=stDist;
+  if(station){
     const n=osmName(station.tags);
     text=/站$/.test(n)? n : n+'站';
+    if(exit){ text+=' '+exit.tags.ref+' 號出口'; dist=exitDist; }
+    else{ dist=haversine(la,lo,station.lat,station.lon); }
+  }else{ // 只有孤立出口資料
+    exits.sort((a,b)=>haversine(la,lo,a.lat,a.lon)-haversine(la,lo,b.lat,b.lon));
+    const e=exits[0]; dist=haversine(la,lo,e.lat,e.lon);
+    text=(e.tags.ref? e.tags.ref+' 號出口':'地鐵出入口');
   }
   const mins=Math.max(1,Math.round(dist/80)); // 步行約 80 公尺/分
   text+='（步行約 '+mins+' 分鐘）';
