@@ -1,0 +1,18 @@
+{
+  "name": "旅圖 TripCanvas",
+  "short_name": "旅圖",
+  "description": "Jason's Life 開發旅程規劃工具",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f3ec",
+  "theme_color": "#7c9082",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": { "title": "st", "text": "sx", "url": "su" }
+  }
+}

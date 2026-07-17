@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>旅圖 TripCanvas｜我的旅程規劃</title>
+<link rel="manifest" href="manifest.json">
 <meta name="description" content="清新設計的旅程規劃網站：多行程管理、行程編排、即時匯率、導航、出發倒數、行前清單、雲端同步。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=Noto+Serif+TC:wght@500;700;900&display=swap" rel="stylesheet">
@@ -225,6 +226,14 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <div class="stat"><b id="stPack">0%</b><span>行前準備</span></div>
     </div>
     <div class="card" style="margin-top:18px">
+      <h2><span class="dot"></span>🧩 旅程範本市集</h2>
+      <p class="muted" style="margin-bottom:12px">套用別人分享的行程範本，或把你的旅程存成範本讓大家使用。</p>
+      <div id="tplList" class="muted">載入中…</div>
+      <div class="share-row" style="margin-top:12px">
+        <button class="btn btn-o" onclick="publishTemplate()">⬆️ 把目前旅程存成範本</button>
+      </div>
+    </div>
+    <div class="card">
       <h2><span class="dot"></span>分享與備份</h2>
       <p class="muted" style="margin-bottom:12px">「分享連結」會把目前這份旅程送給旅伴（載入後成為對方的新旅程）；「匯出備份」則包含你全部的旅程。</p>
       <div class="share-row">
@@ -240,7 +249,10 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   <!-- 行程 -->
   <section id="sec-plan">
     <div class="day-chips" id="dayChips"></div>
-    <div class="plan-tools"><button class="mini" onclick="sortDayByTime()">⏱ 這天依時間重新排序</button></div>
+    <div class="plan-tools">
+      <button class="mini" style="background:var(--grad);color:#fff" onclick="openRec()">✨ 探索推薦</button>
+      <button class="mini" onclick="sortDayByTime()">⏱ 這天依時間重新排序</button>
+    </div>
     <div class="card" id="planList"></div>
   </section>
 
@@ -366,6 +378,26 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   </div>
 </div>
 
+<!-- 探索推薦 modal -->
+<div class="modal-bg" id="recModal">
+  <div class="modal" style="max-width:520px">
+    <h3>✨ 探索推薦 <span class="muted" id="recDest"></span></h3>
+    <div class="day-chips" style="margin-bottom:10px">
+      <button class="chip" onclick="recSearch('景點','熱門景點')">🏞️ 熱門景點</button>
+      <button class="chip" onclick="recSearch('美食','推薦美食餐廳')">🍜 美食</button>
+      <button class="chip" onclick="recSearch('住宿','推薦飯店住宿')">🏨 住宿</button>
+      <button class="chip" id="aiChip" onclick="recAI()" style="display:none">🤖 AI 精選</button>
+    </div>
+    <div class="field">
+      <label>📋 從 IG / 社群貼文帶入（貼上文字，自動抽出景點）</label>
+      <textarea id="igText" rows="2" placeholder="把 IG 貼文的文字複製貼到這裡"></textarea>
+      <div style="margin-top:8px"><button class="btn btn-o" onclick="igExtract()">🔎 抽取地點</button></div>
+    </div>
+    <div id="recList"></div>
+    <div class="modal-acts"><button class="btn btn-ghost" onclick="closeModal('recModal')">關閉</button></div>
+  </div>
+</div>
+
 <footer>旅圖 TripCanvas ・ Jason's Life 開發旅程規劃工具</footer>
 
 <script>
@@ -387,6 +419,11 @@ const GOOGLE_KEY = 'AIzaSyCZ4YjjDKqQ1erOwCDuU_lgBTK2mzHBdPw';
    申請：rapidapi.com 搜尋 AeroDataBox → 訂閱免費方案 → 複製 X-RapidAPI-Key。
    留空時查航班仍可帶出航空公司與航線（免費 adsbdb.com），並附 FlightRadar24 即時動態連結。 */
 const AERO_KEY = 'f45ca19086msh9c2245e2189787bp11f1c0jsn2d5a79dd3f17';
+
+/* Gemini API 金鑰（選配）：填入後「探索推薦」多出 AI 精選（附推薦理由），
+   IG 貼文抽取地點也會改用 AI 判斷（更準）。
+   申請：aistudio.google.com → Get API key（免費）。留空則用內建規則抽取。 */
+const GEMINI_KEY = '';
 
 /* ================= 資料 ================= */
 const LS_KEY = 'tripcanvas_v2';
@@ -1201,6 +1238,154 @@ async function cloudLoad(manual){
   }catch(e){ if(manual) toast('❌ 連線失敗'); }
 }
 
+/* ================= 旅程範本市集 ================= */
+async function renderTemplates(){
+  const box=$('tplList');
+  if(!API_URL){ box.innerHTML='<span class="muted">此功能需要網站管理者部署後端（見 README）</span>'; return; }
+  try{
+    const r=await api('listTemplates',{});
+    if(!r.list||!r.list.length){ box.innerHTML='<span class="muted">還沒有範本，成為第一個分享的人吧！</span>'; return; }
+    box.innerHTML=r.list.map(t=>`
+      <div class="trip-row" onclick="applyTemplate('${esc(t.code)}','${esc(t.name)}')">
+        <div class="ti">
+          <div class="tn">🧩 ${esc(t.name)}</div>
+          <div class="tm">📍 ${esc(t.dest)||'未標示'} ${t.days?'・'+t.days+' 天':''} ・ by ${esc(t.author)}</div>
+        </div>
+        <button class="mini nav-btn" onclick="event.stopPropagation();applyTemplate('${esc(t.code)}','${esc(t.name)}')">套用</button>
+      </div>`).join('');
+  }catch(e){ box.innerHTML='<span class="muted">⚠️ 範本載入失敗，請稍後重新整理</span>'; }
+}
+async function applyTemplate(code,name){
+  if(!confirm(`套用範本「${name}」？會新增為一份新旅程，不影響你現有的旅程。`)) return;
+  try{
+    const r=await api('getTemplate',{code});
+    if(r.error){ toast('❌ '+r.error); return; }
+    const j=JSON.parse(r.data);
+    if(!(j.v===2&&j.trip&&j.trip.trip)) throw 0;
+    const t={...j.trip,id:uid(),updatedAt:Date.now()};
+    t.checklist=(t.checklist||defaultChecklist()).map(c=>({...c,done:false})); // 清單重新開始
+    state.trips.push(t); state.activeId=t.id; curDay=1;
+    save(); renderAll(); toast('已套用範本 ✅ 記得到「旅程設定」改成你的出發日期');
+  }catch(e){ toast('❌ 套用失敗，請稍後再試'); }
+}
+async function publishTemplate(){
+  if(!API_URL){ toast('此功能需要部署後端（見 README）'); return; }
+  const t=T();
+  if(!t.items.length){ toast('目前旅程還沒有行程內容，先排一些再分享吧'); return; }
+  const author=prompt('顯示的作者名稱：',(state.account&&state.account.user)||'');
+  if(author===null) return;
+  if(!confirm(`把「${t.trip.name}」發佈成公開範本？所有使用者都能看到並套用。`)) return;
+  try{
+    const r=await api('pubTemplate',{
+      name:t.trip.name,dest:t.trip.dest,days:tripDays()||'',author:author.trim()||'匿名',
+      data:JSON.stringify({v:2,trip:t})
+    });
+    if(r.error){ toast('❌ '+r.error); return; }
+    toast('範本已發佈 ✅'); renderTemplates();
+  }catch(e){ toast('❌ 發佈失敗，請稍後再試'); }
+}
+
+/* ================= 探索推薦 / IG 帶入 ================= */
+let _recResults=[];
+function openRec(){
+  $('recDest').textContent=T().trip.dest? '｜'+T().trip.dest : '';
+  $('aiChip').style.display=GEMINI_KEY?'inline-block':'none';
+  $('recList').innerHTML='<div class="geo-hint">選擇上方分類，或貼上 IG 貼文文字抽取景點</div>';
+  $('recModal').classList.add('open');
+}
+function recRow(name,sub,i){
+  return `<div class="geo-item" style="display:flex;align-items:center;gap:10px">
+    <div style="flex:1"><div class="gn">${esc(name)}</div><div class="ga">${sub}</div></div>
+    <button class="mini nav-btn" onclick="recAdd(${i})">＋ 加入</button>
+  </div>`;
+}
+async function recSearch(label,query){
+  const dest=T().trip.dest;
+  if(!dest){ toast('請先到「旅程設定」填目的地'); return; }
+  if(!GOOGLE_KEY){ $('recList').innerHTML='<div class="geo-hint">熱門排行需要 GOOGLE_KEY（見 README）。你仍可用下方 IG 文字帶入，或用行程的「🔍 搜尋」。</div>'; return; }
+  $('recList').innerHTML='<div class="geo-hint">搜尋'+label+'中…</div>';
+  try{
+    const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
+        'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount'},
+      body:JSON.stringify({textQuery:dest+' '+query,languageCode:geoLang(),pageSize:10})
+    });
+    const j=await r.json();
+    if(!j.places||!j.places.length){ $('recList').innerHTML='<div class="geo-hint">找不到結果，換個分類試試</div>'; return; }
+    // 依「評分 × log(評論數)」排序 = 當下最火紅
+    _recResults=j.places.map(p=>({
+      title:p.displayName&&p.displayName.text||'',loc:p.formattedAddress||'',
+      phone:p.internationalPhoneNumber||p.nationalPhoneNumber||'',
+      lat:String(p.location&&p.location.latitude||''),lon:String(p.location&&p.location.longitude||''),
+      rating:p.rating||0,count:p.userRatingCount||0
+    })).sort((a,b)=>(b.rating*Math.log10(b.count+1))-(a.rating*Math.log10(a.count+1)));
+    $('recList').innerHTML=_recResults.map((p,i)=>
+      recRow(p.title,`⭐ ${p.rating}（${p.count.toLocaleString()} 則評論）<br>${esc(p.loc)}`,i)).join('');
+  }catch(e){ $('recList').innerHTML='<div class="geo-hint">⚠️ 搜尋失敗，請稍後再試</div>'; }
+}
+function recAdd(i){
+  const p=_recResults[i]; if(!p) return;
+  T().items.push({id:uid(),day:curDay,time:'',title:p.title,loc:p.loc,phone:p.phone,
+    transit:'',note:p.reason||'',flight:'',flightInfo:'',dep:'',arr:'',
+    lat:p.lat||'',lon:p.lon||'',blogTitle:'',blogUrl:''});
+  save(); renderPlan(); renderStats();
+  toast(`已加入 Day ${curDay}：${p.title} ✅`);
+}
+async function gemini(promptText){
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+GEMINI_KEY,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contents:[{parts:[{text:promptText}]}]})
+  });
+  const j=await r.json();
+  let text=j.candidates&&j.candidates[0]&&j.candidates[0].content.parts[0].text||'';
+  return text.replace(/```json|```/g,'').trim();
+}
+async function recAI(){
+  const dest=T().trip.dest;
+  if(!dest){ toast('請先到「旅程設定」填目的地'); return; }
+  $('recList').innerHTML='<div class="geo-hint">🤖 AI 思考中…</div>';
+  try{
+    const text=await gemini(`你是旅遊達人。推薦「${dest}」目前最熱門值得去的景點4個、餐廳3個、住宿2個。只回覆JSON陣列，格式：[{"name":"名稱","type":"景點/美食/住宿","reason":"一句話推薦理由"}]`);
+    const list=JSON.parse(text);
+    _recResults=list.map(x=>({title:x.name,loc:'',phone:'',lat:'',lon:'',reason:x.reason||''}));
+    $('recList').innerHTML=_recResults.map((p,i)=>
+      recRow(p.title,`${esc(list[i].type||'')}｜${esc(p.reason)}<br><span style="color:var(--amber)">※加入後建議按「編輯→🔍搜尋」補地址電話</span>`,i)).join('');
+  }catch(e){ $('recList').innerHTML='<div class="geo-hint">⚠️ AI 回應異常，請再試一次</div>'; }
+}
+async function igExtract(){
+  const text=$('igText').value.trim();
+  if(!text){ toast('請先貼上 IG 貼文文字'); return; }
+  $('recList').innerHTML='<div class="geo-hint">抽取地點中…</div>';
+  let names=[];
+  if(GEMINI_KEY){
+    try{
+      const out=await gemini(`從以下社群貼文抽出「地點名稱」（景點/餐廳/店家/飯店），只回覆JSON字串陣列如["地點1","地點2"]，沒有就回[]：\n${text.substring(0,1500)}`);
+      names=JSON.parse(out);
+    }catch(e){}
+  }
+  if(!names.length){ // 內建規則：hashtag、【】、「」、行首短句
+    const set=new Set();
+    (text.match(/#([^\s#]{2,20})/g)||[]).forEach(h=>set.add(h.slice(1)));
+    (text.match(/[【「『]([^】」』]{2,20})[】」』]/g)||[]).forEach(m=>set.add(m.slice(1,-1)));
+    text.split(/\n/).forEach(l=>{ l=l.trim(); if(l&&l.length<=15&&!/^[#@http]/.test(l)) set.add(l); });
+    names=[...set].slice(0,10);
+  }
+  if(!names.length){ $('recList').innerHTML='<div class="geo-hint">抽不到地點名稱，可直接用行程的「🔍 搜尋」手動加入</div>'; return; }
+  _recResults=names.map(n=>({title:String(n).trim(),loc:'',phone:'',lat:'',lon:'',reason:'來自 IG 貼文'}));
+  $('recList').innerHTML='<div class="geo-sec">從貼文抽取到的地點（點「＋加入」後建議編輯→🔍搜尋補地址）</div>'+
+    _recResults.map((p,i)=>recRow(p.title,'📋 來自貼文',i)).join('');
+}
+function handleShareTarget(){ // Android PWA：從 IG 分享進來（manifest share_target）
+  const sp=new URLSearchParams(location.search);
+  const shared=[sp.get('st'),sp.get('sx'),sp.get('su')].filter(Boolean).join('\n');
+  if(!shared) return;
+  history.replaceState(null,'',location.pathname);
+  openRec();
+  $('igText').value=shared;
+  igExtract();
+}
+
 /* ================= 分享 / 匯出入 ================= */
 async function shareLink(){
   const payload=JSON.stringify({v:2,trip:T()});
@@ -1286,6 +1471,8 @@ function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats();
   renderAll();
   loadShareFromHash(); // 短連結 #s=
   loadRates();
+  renderTemplates();   // 範本市集
+  handleShareTarget(); // Android PWA 分享帶入
   if(API_URL&&state.account) cloudLoad(); // 開啟頁面時自動拉最新雲端資料
 })();
 </script>
