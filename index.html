@@ -816,14 +816,20 @@ async function transitSearch(manual){
     const addr=$('fLoc').value.trim();
     if(!addr){ if(manual) toast('請先用「🔍 搜尋」選定地點，或填入地址'); return; }
     if(manual) toast('以地址定位中…');
-    try{
-      const g=await (await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q='+encodeURIComponent(addr))).json();
-      if(g.length){ la=+g[0].lat; lo=+g[0].lon; _geoPicked={lat:g[0].lat,lon:g[0].lon}; }
-    }catch(e){}
+    // 中文地址定位：Google 解析準確度遠高於 Nominatim，有金鑰優先用
+    const g1=await googleSearch(addr);
+    if(g1&&g1.length&&g1[0].lat){ la=+g1[0].lat; lo=+g1[0].lon; _geoPicked={lat:g1[0].lat,lon:g1[0].lon}; }
+    else{
+      try{
+        const g=await (await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q='+encodeURIComponent(addr))).json();
+        if(g.length){ la=+g[0].lat; lo=+g[0].lon; _geoPicked={lat:g[0].lat,lon:g[0].lon}; }
+      }catch(e){}
+    }
     if(la===undefined){ if(manual) toast('無法定位這個地址，請確認地址或先用搜尋選定地點'); return; }
   }
   if(manual) toast('尋找最近車站中…');
-  const query=`[out:json][timeout:10];(node(around:1200,${la},${lo})[railway=station];node(around:1200,${la},${lo})[station=subway];node(around:1200,${la},${lo})[railway=subway_entrance];);out body;`;
+  // 用 nwr（點/線/面）查車站：很多城市的車站在 OSM 是「區域」而非「點」，只查 node 會漏站
+  const query=`[out:json][timeout:10];(nwr(around:1200,${la},${lo})[railway=station];nwr(around:1200,${la},${lo})[station=subway];node(around:1200,${la},${lo})[railway=subway_entrance];);out center;`;
   const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
   let elements=null;
   for(const ep of endpoints){
@@ -834,15 +840,17 @@ async function transitSearch(manual){
     }catch(e){}
   }
   if(!elements){ if(manual) toast('⚠️ 車站查詢服務暫時無法使用，請手動輸入'); return; }
-  // 2. 分類車站與出口
+  // 2. 分類車站與出口（way/relation 用 center 座標）
+  const coord=el=>({lat:el.lat!==undefined?el.lat:(el.center&&el.center.lat), lon:el.lon!==undefined?el.lon:(el.center&&el.center.lon)});
   const stations=[], exits=[];
   elements.forEach(el=>{
-    const t=el.tags||{};
-    if(t.railway==='subway_entrance') exits.push(el);
-    else if(osmName(t)) stations.push(el);
+    const t=el.tags||{}, c=coord(el);
+    if(c.lat===undefined||c.lat===null) return;
+    if(t.railway==='subway_entrance') exits.push({lat:c.lat,lon:c.lon,tags:t});
+    else if(osmName(t)) stations.push({lat:c.lat,lon:c.lon,tags:t});
   });
   if(!stations.length&&!exits.length){ if(manual) toast('附近 1.2 公里內找不到車站資料，請手動輸入'); return; }
-  // 3. 先鎖定「離景點最近的車站」，再只從該站 300m 內的出口中挑離景點最近者
+  // 3. 先鎖定「離景點最近的車站」，再只從該站 400m 內的出口中挑離景點最近者
   //    （站名與出口必屬同一站，避免兩站之間配錯）
   stations.sort((a,b)=>haversine(la,lo,a.lat,a.lon)-haversine(la,lo,b.lat,b.lon));
   const station=stations[0]||null;
@@ -850,7 +858,7 @@ async function transitSearch(manual){
   if(station){
     exits.forEach(e=>{
       if(!e.tags.ref) return;
-      if(haversine(station.lat,station.lon,e.lat,e.lon)>300) return; // 不屬於這一站
+      if(haversine(station.lat,station.lon,e.lat,e.lon)>400) return; // 不屬於這一站
       const d=haversine(la,lo,e.lat,e.lon);
       if(d<exitDist){ exitDist=d; exit=e; }
     });
