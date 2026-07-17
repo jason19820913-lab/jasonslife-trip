@@ -429,7 +429,7 @@ const AERO_KEY = 'f45ca19086msh9c2245e2189787bp11f1c0jsn2d5a79dd3f17';
 /* Gemini API 金鑰（選配）：填入後「探索推薦」多出 AI 精選（附推薦理由），
    IG 貼文抽取地點也會改用 AI 判斷（更準）。
    申請：aistudio.google.com → Get API key（免費）。留空則用內建規則抽取。 */
-const GEMINI_KEY = 'AQ.Ab8RN6J_RAH65yeWcKrrTqHy_Z1mTdMh-mZp4qhj6WZkLr8jVQ';
+const GEMINI_KEY = 'AQ.Ab8RN6JqjL_PfuwjEAWjn3Wy0ztZMrWF7KVFG9nBOZnwUAzZ_A';
 
 /* ================= 資料 ================= */
 const LS_KEY = 'tripcanvas_v2';
@@ -1325,7 +1325,7 @@ async function recAsk(){ // 開放式 AI 提問推薦
     _recResults=list.map(x=>({title:x.name,loc:'',phone:'',lat:'',lon:'',reason:x.reason||''}));
     $('recList').innerHTML='<div class="geo-sec">🤖 針對「'+esc(q)+'」的推薦</div>'+
       _recResults.map((p,i)=>recRow(p.title,esc(p.reason)+'<br><span style="color:var(--amber)">※加入後可按「編輯→🔍搜尋」補地址電話</span>',i)).join('');
-  }catch(e){ $('recList').innerHTML='<div class="geo-hint">⚠️ AI 回應異常，換個問法再試一次</div>'; }
+  }catch(e){ $('recList').innerHTML='<div class="geo-hint">'+geminiErrMsg(e)+'</div>'; }
 }
 function recRow(name,sub,i){
   return `<div class="geo-item" style="display:flex;align-items:center;gap:10px">
@@ -1369,13 +1369,21 @@ function recAdd(i){
   toast(`已加入 Day ${day}：${p.title} ✅`);
 }
 async function gemini(promptText){
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+GEMINI_KEY,{
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+GEMINI_KEY,{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({contents:[{parts:[{text:promptText}]}]})
   });
   const j=await r.json();
+  if(j.error){ // 金鑰無效/未啟用/超額 等，明確拋出
+    const e=new Error(j.error.message||'API error'); e.isKeyError=(j.error.code===400||j.error.code===401||j.error.code===403); throw e;
+  }
   let text=j.candidates&&j.candidates[0]&&j.candidates[0].content.parts[0].text||'';
   return text.replace(/```json|```/g,'').trim();
+}
+function geminiErrMsg(e){
+  return (e&&e.isKeyError)
+    ? '⚠️ GEMINI_KEY 無效：請到 aistudio.google.com/apikey 建立 API key（AIzaSy 開頭），填入 index.html 的 GEMINI_KEY'
+    : '⚠️ AI 回應異常，請再試一次';
 }
 async function recAI(){
   const dest=T().trip.dest;
@@ -1387,7 +1395,7 @@ async function recAI(){
     _recResults=list.map(x=>({title:x.name,loc:'',phone:'',lat:'',lon:'',reason:x.reason||''}));
     $('recList').innerHTML=_recResults.map((p,i)=>
       recRow(p.title,`${esc(list[i].type||'')}｜${esc(p.reason)}<br><span style="color:var(--amber)">※加入後建議按「編輯→🔍搜尋」補地址電話</span>`,i)).join('');
-  }catch(e){ $('recList').innerHTML='<div class="geo-hint">⚠️ AI 回應異常，請再試一次</div>'; }
+  }catch(e){ $('recList').innerHTML='<div class="geo-hint">'+geminiErrMsg(e)+'</div>'; }
 }
 async function igExtract(){
   const text=$('igText').value.trim();
