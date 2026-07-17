@@ -426,10 +426,11 @@ const GOOGLE_KEY = 'AIzaSyCZ4YjjDKqQ1erOwCDuU_lgBTK2mzHBdPw';
    留空時查航班仍可帶出航空公司與航線（免費 adsbdb.com），並附 FlightRadar24 即時動態連結。 */
 const AERO_KEY = 'f45ca19086msh9c2245e2189787bp11f1c0jsn2d5a79dd3f17';
 
-/* Gemini API 金鑰（選配）：填入後「探索推薦」多出 AI 精選（附推薦理由），
-   IG 貼文抽取地點也會改用 AI 判斷（更準）。
-   申請：aistudio.google.com → Get API key（免費）。留空則用內建規則抽取。 */
-const GEMINI_KEY = 'AQ.Ab8RN6JqjL_PfuwjEAWjn3Wy0ztZMrWF7KVFG9nBOZnwUAzZ_A';
+/* AI 功能（問 AI / AI 精選 / IG 智慧抽取）走後端代理：
+   Gemini 金鑰存在 Apps Script 的「指令碼屬性」（屬性名 GEMINI_KEY），不會出現在前端程式碼，
+   避免金鑰外洩（GitHub secret scanning 也不會擋）。設定方式見 README。
+   ※ GEMINI_KEY 留空即可；只有在「無後端、僅自用」時才直接填金鑰。 */
+const GEMINI_KEY = '';
 
 /* ================= 資料 ================= */
 const LS_KEY = 'tripcanvas_v2';
@@ -1303,19 +1304,19 @@ async function publishTemplate(){
 let _recResults=[];
 function openRec(){
   $('recDest').textContent=T().trip.dest? '｜'+T().trip.dest : '';
-  $('aiChip').style.display=GEMINI_KEY?'inline-block':'none';
-  $('askField').style.display=GEMINI_KEY?'block':'none';
+  $('aiChip').style.display=aiOn()?'inline-block':'none';
+  $('askField').style.display=aiOn()?'block':'none';
   const days=Math.max(tripDays(),1);
   $('recDay').innerHTML=Array.from({length:days},(_,i)=>`<option value="${i+1}">${dayLabel(i+1)}</option>`).join('');
   $('recDay').value=Math.min(curDay,days);
-  $('recList').innerHTML='<div class="geo-hint">'+(GEMINI_KEY?'直接問 AI、':'')+'選擇上方分類，或貼上 IG 貼文文字抽取景點</div>';
+  $('recList').innerHTML='<div class="geo-hint">'+(aiOn()?'直接問 AI、':'')+'選擇上方分類，或貼上 IG 貼文文字抽取景點</div>';
   $('recModal').classList.add('open');
 }
 function recTargetDay(){ return +($('recDay').value||curDay)||1; }
 async function recAsk(){ // 開放式 AI 提問推薦
   const q=$('aiAsk').value.trim();
   if(!q){ toast('請輸入你想問的問題'); return; }
-  if(!GEMINI_KEY){ toast('此功能需要 GEMINI_KEY（見 README）'); return; }
+  if(!aiOn()){ toast('此功能需要部署後端並設定 GEMINI_KEY（見 README）'); return; }
   const dest=T().trip.dest||'';
   $('recList').innerHTML='<div class="geo-hint">🤖 AI 思考中…</div>';
   try{
@@ -1368,22 +1369,39 @@ function recAdd(i){
   save(); renderPlan(); renderStats();
   toast(`已加入 Day ${day}：${p.title} ✅`);
 }
+const GEMINI_MODELS=['gemini-3.1-flash-lite','gemini-flash-latest']; // 主用+備援，塞車或下架自動切換
+function aiOn(){ return !!(GEMINI_KEY||API_URL); } // AI 功能可用：前端金鑰（自用）或後端代理
 async function gemini(promptText){
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+GEMINI_KEY,{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({contents:[{parts:[{text:promptText}]}]})
-  });
-  const j=await r.json();
-  if(j.error){ // 金鑰無效/未啟用/超額 等，明確拋出
-    const e=new Error(j.error.message||'API error'); e.isKeyError=(j.error.code===400||j.error.code===401||j.error.code===403); throw e;
+  if(!GEMINI_KEY&&API_URL){ // 走後端代理（金鑰存在 Apps Script，不外洩）
+    const r=await api('ai',{prompt:promptText});
+    if(r.error){
+      const e=new Error(r.error); e.isKeyError=!!r.keyError; e.isBusy=!!r.busy; throw e;
+    }
+    return String(r.text||'').replace(/```json|```/g,'').trim();
   }
-  let text=j.candidates&&j.candidates[0]&&j.candidates[0].content.parts[0].text||'';
-  return text.replace(/```json|```/g,'').trim();
+  let lastErr=null;
+  for(const model of GEMINI_MODELS){
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+GEMINI_KEY,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:promptText}]}]})
+    });
+    const j=await r.json();
+    if(j.error){
+      lastErr=new Error(j.error.message||'API error');
+      lastErr.isKeyError=(j.error.code===400||j.error.code===401||j.error.code===403);
+      lastErr.isBusy=(j.error.code===503||j.error.code===429);
+      if(lastErr.isKeyError) throw lastErr; // 金鑰問題換模型也沒用
+      continue; // 404 模型下架 / 503 壅塞 → 換下一個模型
+    }
+    const text=j.candidates&&j.candidates[0]&&j.candidates[0].content.parts[0].text||'';
+    return text.replace(/```json|```/g,'').trim();
+  }
+  throw lastErr||new Error('no model');
 }
 function geminiErrMsg(e){
-  return (e&&e.isKeyError)
-    ? '⚠️ GEMINI_KEY 無效：請到 aistudio.google.com/apikey 建立 API key（AIzaSy 開頭），填入 index.html 的 GEMINI_KEY'
-    : '⚠️ AI 回應異常，請再試一次';
+  if(e&&e.isKeyError) return '⚠️ GEMINI_KEY 無效：請到 aistudio.google.com/apikey 建立 API key，填入 index.html 的 GEMINI_KEY';
+  if(e&&e.isBusy) return '⚠️ AI 目前流量壅塞，等幾秒再試一次';
+  return '⚠️ AI 回應異常，請再試一次';
 }
 async function recAI(){
   const dest=T().trip.dest;
@@ -1402,7 +1420,7 @@ async function igExtract(){
   if(!text){ toast('請先貼上 IG 貼文文字'); return; }
   $('recList').innerHTML='<div class="geo-hint">抽取地點中…</div>';
   let names=[];
-  if(GEMINI_KEY){
+  if(aiOn()){
     try{
       const out=await gemini(`從以下社群貼文抽出「地點名稱」（景點/餐廳/店家/飯店），只回覆JSON字串陣列如["地點1","地點2"]，沒有就回[]：\n${text.substring(0,1500)}`);
       names=JSON.parse(out);
