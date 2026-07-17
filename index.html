@@ -382,6 +382,11 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 <div class="modal-bg" id="recModal">
   <div class="modal" style="max-width:520px">
     <h3>✨ 探索推薦 <span class="muted" id="recDest"></span></h3>
+    <div class="field geo-row" id="askField">
+      <label>🤖 問 AI（開放式提問，直接推薦地點）</label>
+      <input id="aiAsk" placeholder="例如：適合親子的景點？下雨天去哪？在地人吃的燒肉？" onkeydown="if(event.key==='Enter'){event.preventDefault();recAsk();}">
+      <button type="button" class="geo-btn" onclick="recAsk()">問 AI</button>
+    </div>
     <div class="day-chips" style="margin-bottom:10px">
       <button class="chip" onclick="recSearch('景點','熱門景點')">🏞️ 熱門景點</button>
       <button class="chip" onclick="recSearch('美食','推薦美食餐廳')">🍜 美食</button>
@@ -393,6 +398,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <textarea id="igText" rows="2" placeholder="把 IG 貼文的文字複製貼到這裡"></textarea>
       <div style="margin-top:8px"><button class="btn btn-o" onclick="igExtract()">🔎 抽取地點</button></div>
     </div>
+    <div class="field"><label>加入到哪一天</label><select id="recDay"></select></div>
     <div id="recList"></div>
     <div class="modal-acts"><button class="btn btn-ghost" onclick="closeModal('recModal')">關閉</button></div>
   </div>
@@ -423,7 +429,7 @@ const AERO_KEY = 'f45ca19086msh9c2245e2189787bp11f1c0jsn2d5a79dd3f17';
 /* Gemini API 金鑰（選配）：填入後「探索推薦」多出 AI 精選（附推薦理由），
    IG 貼文抽取地點也會改用 AI 判斷（更準）。
    申請：aistudio.google.com → Get API key（免費）。留空則用內建規則抽取。 */
-const GEMINI_KEY = '';
+const GEMINI_KEY = 'AQ.Ab8RN6J_RAH65yeWcKrrTqHy_Z1mTdMh-mZp4qhj6WZkLr8jVQ';
 
 /* ================= 資料 ================= */
 const LS_KEY = 'tripcanvas_v2';
@@ -1298,8 +1304,28 @@ let _recResults=[];
 function openRec(){
   $('recDest').textContent=T().trip.dest? '｜'+T().trip.dest : '';
   $('aiChip').style.display=GEMINI_KEY?'inline-block':'none';
-  $('recList').innerHTML='<div class="geo-hint">選擇上方分類，或貼上 IG 貼文文字抽取景點</div>';
+  $('askField').style.display=GEMINI_KEY?'block':'none';
+  const days=Math.max(tripDays(),1);
+  $('recDay').innerHTML=Array.from({length:days},(_,i)=>`<option value="${i+1}">${dayLabel(i+1)}</option>`).join('');
+  $('recDay').value=Math.min(curDay,days);
+  $('recList').innerHTML='<div class="geo-hint">'+(GEMINI_KEY?'直接問 AI、':'')+'選擇上方分類，或貼上 IG 貼文文字抽取景點</div>';
   $('recModal').classList.add('open');
+}
+function recTargetDay(){ return +($('recDay').value||curDay)||1; }
+async function recAsk(){ // 開放式 AI 提問推薦
+  const q=$('aiAsk').value.trim();
+  if(!q){ toast('請輸入你想問的問題'); return; }
+  if(!GEMINI_KEY){ toast('此功能需要 GEMINI_KEY（見 README）'); return; }
+  const dest=T().trip.dest||'';
+  $('recList').innerHTML='<div class="geo-hint">🤖 AI 思考中…</div>';
+  try{
+    const text=await gemini(`你是熟悉「${dest||'世界各地'}」的在地旅遊達人。使用者的需求：「${q}」。請推薦最多6個具體的地點（景點/餐廳/店家/住宿，要真實存在、名稱可以在地圖搜到）。只回覆JSON陣列：[{"name":"地點名稱","reason":"一句話說明為什麼符合需求"}]`);
+    const list=JSON.parse(text);
+    if(!Array.isArray(list)||!list.length) throw 0;
+    _recResults=list.map(x=>({title:x.name,loc:'',phone:'',lat:'',lon:'',reason:x.reason||''}));
+    $('recList').innerHTML='<div class="geo-sec">🤖 針對「'+esc(q)+'」的推薦</div>'+
+      _recResults.map((p,i)=>recRow(p.title,esc(p.reason)+'<br><span style="color:var(--amber)">※加入後可按「編輯→🔍搜尋」補地址電話</span>',i)).join('');
+  }catch(e){ $('recList').innerHTML='<div class="geo-hint">⚠️ AI 回應異常，換個問法再試一次</div>'; }
 }
 function recRow(name,sub,i){
   return `<div class="geo-item" style="display:flex;align-items:center;gap:10px">
@@ -1334,11 +1360,13 @@ async function recSearch(label,query){
 }
 function recAdd(i){
   const p=_recResults[i]; if(!p) return;
-  T().items.push({id:uid(),day:curDay,time:'',title:p.title,loc:p.loc,phone:p.phone,
+  const day=recTargetDay();
+  T().items.push({id:uid(),day,time:'',title:p.title,loc:p.loc,phone:p.phone,
     transit:'',note:p.reason||'',flight:'',flightInfo:'',dep:'',arr:'',
     lat:p.lat||'',lon:p.lon||'',blogTitle:'',blogUrl:''});
+  curDay=day;
   save(); renderPlan(); renderStats();
-  toast(`已加入 Day ${curDay}：${p.title} ✅`);
+  toast(`已加入 Day ${day}：${p.title} ✅`);
 }
 async function gemini(promptText){
   const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+GEMINI_KEY,{
