@@ -75,8 +75,14 @@ h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--grad);display:in
 .day-chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px}
 .chip{white-space:nowrap;border:1.5px solid var(--line);background:#fff;color:var(--sub);border-radius:999px;padding:8px 16px;font-weight:700;font-size:.88rem}
 .chip.active{background:var(--grad);color:#fff;border-color:transparent}
-.it-item{display:flex;gap:14px;padding:14px 0;border-bottom:1px dashed var(--line)}
+.it-item{display:flex;gap:14px;padding:14px 0}
 .it-item:last-child{border-bottom:none}
+/* 行程間交通時間 */
+.it-gap{display:flex;align-items:center;gap:10px;padding:2px 0 2px 8px;border-top:1px dashed var(--line);border-bottom:1px dashed var(--line)}
+.it-gap .gline{color:#c5beac;font-size:.8rem;letter-spacing:2px}
+.gap-chip{border:none;background:#f2f4ec;color:var(--teal-d);border-radius:999px;padding:4px 14px;font-size:.8rem;font-weight:700;cursor:pointer}
+.gap-chip:hover{background:#e9ede1}
+.gap-chip.approx{color:var(--sub)}
 .it-time{font-weight:900;color:var(--teal-d);min-width:56px;font-variant-numeric:tabular-nums}
 .it-body{flex:1}
 .it-title{font-weight:700}
@@ -624,6 +630,7 @@ function renderPlan(){
     return;
   }
   $('planList').innerHTML = items.map((x,idx)=>`
+    ${idx>0?`<div class="it-gap" id="gap-${items[idx-1].id}" style="display:none"><span class="gline">⋮</span></div>`:''}
     <div class="it-item">
       <div class="it-time">${esc(x.time)||'--:--'}</div>
       <div class="it-body">
@@ -649,6 +656,93 @@ function renderPlan(){
         <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
       </div>
     </div>`).join('');
+  updateGaps(items); // 背景計算行程間交通時間
+}
+
+/* ── 行程間交通時間預估：🚗 OSRM 路網 + 🚇 Google Routes API（選配）/均速概估 ──
+   韓國的兩點路線點擊改開 Naver Map（時間最準）。 */
+let _routeCache={};
+try{ _routeCache=JSON.parse(localStorage.getItem('tripcanvas_routes_v2')||'{}'); }catch(e){}
+function saveRouteCache(){
+  const keys=Object.keys(_routeCache);
+  if(keys.length>300) keys.slice(0,keys.length-300).forEach(k=>delete _routeCache[k]); // 上限控制
+  try{ localStorage.setItem('tripcanvas_routes_v2',JSON.stringify(_routeCache)); }catch(e){}
+}
+function inKoreaCoord(lat,lon){ lat=+lat; lon=+lon; return lat>=33&&lat<=38.7&&lon>=124.5&&lon<=131.5; }
+async function transitTime(a,b,distKm){
+  if(GOOGLE_KEY){ // Google Routes API（需在 Cloud Console 啟用 Routes API）
+    try{
+      const r=await fetch('https://routes.googleapis.com/directions/v2:computeRoutes',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,'X-Goog-FieldMask':'routes.duration'},
+        body:JSON.stringify({
+          origin:{location:{latLng:{latitude:+a.lat,longitude:+a.lon}}},
+          destination:{location:{latLng:{latitude:+b.lat,longitude:+b.lon}}},
+          travelMode:'TRANSIT'})
+      });
+      const j=await r.json();
+      const dur=j.routes&&j.routes[0]&&j.routes[0].duration;
+      if(dur) return {mins:Math.max(1,Math.round(parseInt(dur)/60))};
+    }catch(e){}
+  }
+  if(distKm<=40) return {mins:Math.round(distKm/32*60)+10,approx:true}; // 地鐵均速+轉乘概估
+  return null;
+}
+async function routeEstimate(a,b){
+  const key=a.lat+','+a.lon+'|'+b.lat+','+b.lon;
+  if(_routeCache[key]) return _routeCache[key];
+  const distKm=haversine(+a.lat,+a.lon,+b.lat,+b.lon)/1000;
+  let r=null;
+  if(distKm>400){ r={mode:'plane'}; }
+  else if(distKm<=1.2){ r={mode:'walk',mins:Math.max(1,Math.round(distKm*1000/80)),km:+distKm.toFixed(1)}; }
+  else{
+    let car=null;
+    try{
+      const j=await (await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`)).json();
+      if(j.routes&&j.routes[0]) car={mins:Math.max(1,Math.round(j.routes[0].duration/60)),km:+(j.routes[0].distance/1000).toFixed(1)};
+    }catch(e){}
+    if(!car) car={mins:Math.round(distKm/30*60)+5,km:+distKm.toFixed(1),approx:true}; // 市區均速概估
+    const transit=await transitTime(a,b,distKm);
+    r={mode:'go',car,transit};
+  }
+  _routeCache[key]=r; saveRouteCache();
+  return r;
+}
+async function updateGaps(items){
+  const myDay=curDay;
+  for(let i=0;i<items.length-1;i++){
+    const a=items[i],b=items[i+1];
+    const el=document.getElementById('gap-'+a.id);
+    if(!el) continue;
+    if(!(a.lat&&a.lon&&b.lat&&b.lon)) continue; // 缺座標不顯示
+    const r=await routeEstimate(a,b);
+    if(curDay!==myDay) return; // 使用者已切到別天，中止
+    const el2=document.getElementById('gap-'+a.id);
+    if(!el2||!r||r.mode==='plane') continue;
+    let chips='';
+    if(r.mode==='walk'){
+      chips=`<button class="gap-chip" onclick="gapNav('${a.id}','${b.id}','walk')">🚶 步行約 ${r.mins} 分・${r.km} km</button>`;
+    }else{
+      chips=`<button class="gap-chip ${r.car.approx?'approx':''}" onclick="gapNav('${a.id}','${b.id}','car')">🚗 約 ${r.car.mins} 分・${r.car.km} km${r.car.approx?'（概估）':''}</button>`;
+      if(r.transit) chips+=`<button class="gap-chip ${r.transit.approx?'approx':''}" onclick="gapNav('${a.id}','${b.id}','transit')">🚇 約 ${r.transit.mins} 分${r.transit.approx?'（概估）':''}</button>`;
+    }
+    el2.style.display='flex';
+    el2.innerHTML=`<span class="gline">⋮</span>${chips}`;
+  }
+}
+function gapNav(aid,bid,mode){
+  const a=T().items.find(i=>i.id===aid), b=T().items.find(i=>i.id===bid);
+  if(!a||!b) return;
+  // 韓國的兩點路線 → Naver Map（時間預估最準）
+  if(inKoreaCoord(a.lat,a.lon)&&inKoreaCoord(b.lat,b.lon)){
+    const seg=p=>`${p.lon},${p.lat},${encodeURIComponent((p.title||'').substring(0,30))}`;
+    const nMode= mode==='car'? 'car' : mode==='walk'? 'walk' : 'transit';
+    window.open(`https://map.naver.com/p/directions/${seg(a)}/${seg(b)}/-/${nMode}`,'_blank');
+    return;
+  }
+  const gMode= mode==='car'? 'driving' : mode==='walk'? 'walking' : 'transit';
+  window.open('https://www.google.com/maps/dir/?api=1&travelmode='+gMode+
+    '&origin='+encodeURIComponent(a.lat+','+a.lon)+'&destination='+encodeURIComponent(b.lat+','+b.lon),'_blank');
 }
 function moveItem(id,dir){
   const all=T().items;
