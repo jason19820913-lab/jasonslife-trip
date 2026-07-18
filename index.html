@@ -713,18 +713,26 @@ function callTo(id){
 function isHotelName(s){
   return /飯店|酒店|旅館|旅店|民宿|青年旅舍|會館|溫泉旅|hotel|resort|inn|hostel|motel|suites|villa|ホテル|旅館|호텔/i.test(s||'');
 }
-function agodaUrl(name){
-  const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.｜|]/g,' '):'';
-  return 'https://www.agoda.com/Search?cid='+encodeURIComponent(AGODA_CID)+'&textToSearch='+encodeURIComponent((name||'')+dest);
+async function openAgodaFor(name){
+  // 先同步開空白視窗（避免 async 後被瀏覽器擋彈出視窗），解析成功後再導向飯店頁
+  const win=window.open('about:blank','_blank');
+  let url='https://www.agoda.com/?cid='+encodeURIComponent(AGODA_CID); // 保底：首頁帶分潤
+  if(API_URL){
+    try{
+      const r=await api('agoda',{q:name});
+      if(r.hid)       url='https://www.agoda.com/partners/partnersearch.aspx?cid='+encodeURIComponent(AGODA_CID)+'&hid='+encodeURIComponent(r.hid);
+      else if(r.city) url='https://www.agoda.com/partners/partnersearch.aspx?cid='+encodeURIComponent(AGODA_CID)+'&city='+encodeURIComponent(r.city);
+    }catch(e){}
+  }
+  if(win&&!win.closed){ win.location=url; } else { window.open(url,'_blank'); }
 }
 function agodaGo(id){
   const x=T().items.find(i=>i.id===id);
-  if(!x) return;
-  window.open(agodaUrl(x.title),'_blank');
+  if(x) openAgodaFor(x.title);
 }
 function recAgoda(i){
-  const p=_recResults[i]; if(!p) return;
-  window.open(agodaUrl(p.title),'_blank');
+  const p=_recResults[i];
+  if(p) openAgodaFor(p.title);
 }
 
 /* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
@@ -751,7 +759,7 @@ async function googleSearch(q){ // Google Places API (New)，需 GOOGLE_KEY
       method:'POST',
       headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
         'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location'},
-      body:JSON.stringify({textQuery:q,languageCode:geoLang(),pageSize:5})
+      body:JSON.stringify({textQuery:q,languageCode:geoLang(),pageSize:10})
     });
     const j=await r.json();
     if(!j.places||!j.places.length) return [];
@@ -773,7 +781,7 @@ async function geoSearch(){
   // 地點與部落格並行搜尋
   const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.]/g,' '):'';
   const lang=geoLang()+',zh-TW,zh,en,ja,ko';
-  const nomiUrl=k=>'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&accept-language='+encodeURIComponent(lang)+'&q='+encodeURIComponent(k);
+  const nomiUrl=k=>'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=10&accept-language='+encodeURIComponent(lang)+'&q='+encodeURIComponent(k);
   const geoP=(async()=>{
     // 優先 Google Places（有金鑰時），失敗或沒結果退回 OpenStreetMap
     const g=await googleSearch(q+dest);
@@ -789,7 +797,7 @@ async function geoSearch(){
   let html='';
   if(blogList.length){
     html+=`<div class="geo-sec">📖 ${esc(BLOG_NAME)} 寫過這裡！點選帶入文章連結</div>`;
-    html+=blogList.slice(0,3).map((b,i)=>
+    html+=blogList.slice(0,5).map((b,i)=>
       `<div class="geo-item" onclick="pickBlog(${i})"><div class="gn">📖 ${esc(b.title)}</div></div>`).join('');
     if(!_blogPicked){ pickBlogSilent(0); } // 自動帶入第一篇（可移除）
   }
@@ -1345,7 +1353,7 @@ async function recAsk(){ // 開放式 AI 提問推薦
   const dest=T().trip.dest||'';
   $('recList').innerHTML='<div class="geo-hint">🤖 AI 思考中…</div>';
   try{
-    const text=await gemini(`你是熟悉「${dest||'世界各地'}」的在地旅遊達人。使用者的需求：「${q}」。請推薦最多6個具體的地點（景點/餐廳/店家/住宿，要真實存在、名稱可以在地圖搜到）。只回覆JSON陣列：[{"name":"地點名稱","reason":"一句話說明為什麼符合需求"}]`);
+    const text=await gemini(`你是熟悉「${dest||'世界各地'}」的在地旅遊達人。使用者的需求：「${q}」。請推薦最多12個具體的地點（景點/餐廳/店家/住宿，要真實存在、名稱可以在地圖搜到），依推薦程度排序。只回覆JSON陣列：[{"name":"地點名稱","reason":"一句話說明為什麼符合需求"}]`);
     const list=JSON.parse(text);
     if(!Array.isArray(list)||!list.length) throw 0;
     _recResults=list.map(x=>({title:x.name,loc:'',phone:'',lat:'',lon:'',reason:x.reason||''}));
@@ -1371,7 +1379,7 @@ async function recSearch(label,query){
       method:'POST',
       headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
         'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount'},
-      body:JSON.stringify({textQuery:dest+' '+query,languageCode:geoLang(),pageSize:10})
+      body:JSON.stringify({textQuery:dest+' '+query,languageCode:geoLang(),pageSize:20})
     });
     const j=await r.json();
     if(!j.places||!j.places.length){ $('recList').innerHTML='<div class="geo-hint">找不到結果，換個分類試試</div>'; return; }
@@ -1435,7 +1443,7 @@ async function recAI(){
   if(!dest){ toast('請先到「旅程設定」填目的地'); return; }
   $('recList').innerHTML='<div class="geo-hint">🤖 AI 思考中…</div>';
   try{
-    const text=await gemini(`你是旅遊達人。推薦「${dest}」目前最熱門值得去的景點4個、餐廳3個、住宿2個。只回覆JSON陣列，格式：[{"name":"名稱","type":"景點/美食/住宿","reason":"一句話推薦理由"}]`);
+    const text=await gemini(`你是旅遊達人。推薦「${dest}」目前最熱門值得去的景點8個、餐廳5個、住宿3個。只回覆JSON陣列，格式：[{"name":"名稱","type":"景點/美食/住宿","reason":"一句話推薦理由"}]`);
     const list=JSON.parse(text);
     _recResults=list.map(x=>({title:x.name,loc:'',phone:'',lat:'',lon:'',reason:x.reason||''}));
     $('recList').innerHTML=_recResults.map((p,i)=>
