@@ -749,28 +749,51 @@ async function blogSearch(q){
                .filter(p=>p.title.toLowerCase().includes(q.toLowerCase()));
   }catch(e){ return []; }
 }
-/* 韓國旅程回傳韓文地址（Naver Map 用韓文地址最準），其他地區中文優先。
-   搜尋關鍵字本身中/英/日/韓皆可（比對 OSM / Google 的多語名稱庫）。 */
-function geoLang(){ return isKoreaItem(null)? 'ko' : 'zh-TW'; }
-async function googleSearch(q){ // Google Places API (New)，需 GOOGLE_KEY
+/* 雙語搜尋策略：
+   - 顯示名稱一律中文為主；韓國/日本旅程同時抓當地語版本，
+     地點確實在當地時顯示「中文名（당지/現地名）」方便對照店家招牌。
+   - 地址：地點在韓國 → 存韓文地址（Naver 導航最準）；在日本 → 存日文地址；
+     其他（例如韓國旅程中的台灣機場）→ 中文地址。
+   搜尋關鍵字本身中/英/日/韓皆可（比對 Google / OSM 的多語名稱庫）。 */
+function localLang(){
+  if(isKoreaItem(null)) return 'ko';
+  if(T().trip.currency==='JPY'||/日本|japan|東京|大阪|京都|北海道|沖繩|九州|奈良|福岡|名古屋/i.test(T().trip.dest||'')) return 'ja';
+  return '';
+}
+async function googleSearch(q,pageSize){ // Google Places API (New)，需 GOOGLE_KEY
   if(!GOOGLE_KEY) return null;
-  try{
+  const call=async lang=>{
     const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
-        'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location'},
-      body:JSON.stringify({textQuery:q,languageCode:geoLang(),pageSize:10})
+        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount'},
+      body:JSON.stringify({textQuery:q,languageCode:lang,pageSize:pageSize||10})
     });
     const j=await r.json();
-    if(!j.places||!j.places.length) return [];
-    // 轉成與 Nominatim 相同的結構（電話：國際格式優先，退回當地格式）
-    return j.places.map(p=>({
-      name:p.displayName&&p.displayName.text||'',
-      display_name:p.formattedAddress||'',
-      lat:String(p.location&&p.location.latitude||''),
-      lon:String(p.location&&p.location.longitude||''),
-      extratags:{phone:p.internationalPhoneNumber||p.nationalPhoneNumber||''}
-    }));
+    return j.places||[];
+  };
+  try{
+    const zh=await call('zh-TW');            // 主：中文
+    if(!zh.length) return [];
+    const ll=localLang();
+    let byId={};
+    if(ll){ try{ (await call(ll)).forEach(p=>{ if(p.id) byId[p.id]=p; }); }catch(e){} } // 副：當地語
+    return zh.map(p=>{
+      const lp=byId[p.id];
+      const zhName=p.displayName&&p.displayName.text||'';
+      const localName=lp&&lp.displayName&&lp.displayName.text||'';
+      const localAddr=lp&&lp.formattedAddress||'';
+      // 用當地語地址中的國名判斷地點是否真的位於旅程當地國
+      const inLocal = ll==='ko'? /대한민국/.test(localAddr) : ll==='ja'? /日本/.test(localAddr) : false;
+      return {
+        name:(inLocal&&localName&&localName!==zhName)? zhName+'（'+localName+'）' : zhName,
+        display_name: inLocal? localAddr : (p.formattedAddress||''),
+        lat:String(p.location&&p.location.latitude||''),
+        lon:String(p.location&&p.location.longitude||''),
+        extratags:{phone:p.internationalPhoneNumber||p.nationalPhoneNumber||''},
+        rating:p.rating||0, count:p.userRatingCount||0
+      };
+    });
   }catch(e){ return null; }
 }
 async function geoSearch(){
@@ -780,7 +803,7 @@ async function geoSearch(){
   box.innerHTML='<div class="geo-hint">搜尋中…</div>'; box.classList.add('open');
   // 地點與部落格並行搜尋
   const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.]/g,' '):'';
-  const lang=geoLang()+',zh-TW,zh,en,ja,ko';
+  const lang='zh-TW,zh,en,ja,ko'; // OSM 顯示語言：中文優先
   const nomiUrl=k=>'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=10&accept-language='+encodeURIComponent(lang)+'&q='+encodeURIComponent(k);
   const geoP=(async()=>{
     // 優先 Google Places（有金鑰時），失敗或沒結果退回 OpenStreetMap
@@ -1375,20 +1398,12 @@ async function recSearch(label,query){
   if(!GOOGLE_KEY){ $('recList').innerHTML='<div class="geo-hint">熱門排行需要 GOOGLE_KEY（見 README）。你仍可用下方 IG 文字帶入，或用行程的「🔍 搜尋」。</div>'; return; }
   $('recList').innerHTML='<div class="geo-hint">搜尋'+label+'中…</div>';
   try{
-    const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
-        'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount'},
-      body:JSON.stringify({textQuery:dest+' '+query,languageCode:geoLang(),pageSize:20})
-    });
-    const j=await r.json();
-    if(!j.places||!j.places.length){ $('recList').innerHTML='<div class="geo-hint">找不到結果，換個分類試試</div>'; return; }
+    const list=await googleSearch(dest+' '+query,20); // 雙語（中文＋當地語）結果
+    if(!list||!list.length){ $('recList').innerHTML='<div class="geo-hint">找不到結果，換個分類試試</div>'; return; }
     // 依「評分 × log(評論數)」排序 = 當下最火紅
-    _recResults=j.places.map(p=>({
-      title:p.displayName&&p.displayName.text||'',loc:p.formattedAddress||'',
-      phone:p.internationalPhoneNumber||p.nationalPhoneNumber||'',
-      lat:String(p.location&&p.location.latitude||''),lon:String(p.location&&p.location.longitude||''),
-      rating:p.rating||0,count:p.userRatingCount||0
+    _recResults=list.map(p=>({
+      title:p.name,loc:p.display_name,phone:p.extratags.phone,
+      lat:p.lat,lon:p.lon,rating:p.rating,count:p.count
     })).sort((a,b)=>(b.rating*Math.log10(b.count+1))-(a.rating*Math.log10(a.count+1)));
     $('recList').innerHTML=_recResults.map((p,i)=>
       recRow(p.title,`⭐ ${p.rating}（${p.count.toLocaleString()} 則評論）<br>${esc(p.loc)}`,i)).join('');
