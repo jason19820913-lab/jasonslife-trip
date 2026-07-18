@@ -83,6 +83,8 @@ h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--grad);display:in
 .gap-chip{border:none;background:#f2f4ec;color:var(--teal-d);border-radius:999px;padding:4px 14px;font-size:.8rem;font-weight:700;cursor:pointer}
 .gap-chip:hover{background:#e9ede1}
 .gap-chip.approx{color:var(--sub)}
+.gap-chip.uber{background:#3a3935;color:#fff}
+.gap-chip.uber:hover{background:#54524d}
 .it-time{font-weight:900;color:var(--teal-d);min-width:56px;font-variant-numeric:tabular-nums}
 .it-body{flex:1}
 .it-title{font-weight:700}
@@ -182,6 +184,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 .it-flight{font-size:.85rem;color:#5b6b8c;font-weight:700;margin-top:3px;background:#eaeef5;border-radius:8px;padding:5px 10px;display:inline-block}
 .mini.flight-btn{background:#e7ecf5;color:#5b6b8c}
 .mini.agoda-btn{background:#f6e6e2;color:#b3766e}
+.mini.kkday-btn{background:#e2efee;color:#4e8a85}
 @media(max-width:600px){
   .fx-box{grid-template-columns:1fr}
   .fx-swap{justify-self:center;transform:rotate(90deg)}
@@ -437,6 +440,10 @@ const AERO_KEY = 'f45ca19086msh9c2245e2189787bp11f1c0jsn2d5a79dd3f17';
    外連到 Agoda 搜尋該飯店的頁面並帶上你的分潤 ID。留空停用。 */
 const AGODA_CID = '1745675';
 
+/* KKday 聯盟分潤 CID（選配）：景點/體驗會出現「KKday 門票」按鈕，
+   外連到 KKday 該景點的門票商品列表並帶上你的分潤 ID。留空停用。 */
+const KKDAY_CID = '13175';
+
 /* AI 功能（問 AI / AI 精選 / IG 智慧抽取）走後端代理：
    Gemini 金鑰存在 Apps Script 的「指令碼屬性」（屬性名 GEMINI_KEY），不會出現在前端程式碼，
    避免金鑰外洩（GitHub secret scanning 也不會擋）。設定方式見 README。
@@ -651,6 +658,7 @@ function renderPlan(){
         ${x.phone?`<button class="mini call-btn" onclick="callTo('${x.id}')">📞 打電話</button>`:''}
         ${x.flight?`<button class="mini flight-btn" onclick="window.open('https://www.flightradar24.com/data/flights/${esc(x.flight.toLowerCase())}','_blank')">✈️ 航班動態</button>`:''}
         ${(AGODA_CID&&isHotelName(x.title))?`<button class="mini agoda-btn" onclick="agodaGo('${x.id}')">🏨 Agoda 訂房</button>`:''}
+        ${(KKDAY_CID&&!isHotelName(x.title)&&!x.flight)?`<button class="mini kkday-btn" onclick="kkdayGo('${x.id}')">🎫 KKday 門票</button>`:''}
         ${x.blogUrl?`<button class="mini blog-btn" onclick="window.open('${esc(x.blogUrl)}','_blank')">📖 看遊記</button>`:''}
         <button class="mini" onclick="openItem('${x.id}')">編輯</button>
         <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
@@ -726,9 +734,24 @@ async function updateGaps(items){
       chips=`<button class="gap-chip ${r.car.approx?'approx':''}" onclick="gapNav('${a.id}','${b.id}','car')">🚗 約 ${r.car.mins} 分・${r.car.km} km${r.car.approx?'（概估）':''}</button>`;
       if(r.transit) chips+=`<button class="gap-chip ${r.transit.approx?'approx':''}" onclick="gapNav('${a.id}','${b.id}','transit')">🚇 約 ${r.transit.mins} 分${r.transit.approx?'（概估）':''}</button>`;
     }
+    chips+=`<button class="gap-chip uber" onclick="gapUber('${a.id}','${b.id}')" title="起訖點自動帶入 Uber">🚕 Uber</button>`;
     el2.style.display='flex';
     el2.innerHTML=`<span class="gline">⋮</span>${chips}`;
   }
+}
+function gapUber(aid,bid){
+  const a=T().items.find(i=>i.id===aid), b=T().items.find(i=>i.id===bid);
+  if(!a||!b) return;
+  const nm=s=>String(s||'').split('（')[0].trim().substring(0,50); // 去除雙語括號
+  // Uber 官方深層連結：手機開 App、電腦開網頁版，起訖點全部帶好
+  const url='https://m.uber.com/ul/?action=setPickup'
+    +'&pickup[latitude]='+a.lat+'&pickup[longitude]='+a.lon
+    +'&pickup[nickname]='+encodeURIComponent(nm(a.title))
+    +(a.loc?'&pickup[formatted_address]='+encodeURIComponent(a.loc):'')
+    +'&dropoff[latitude]='+b.lat+'&dropoff[longitude]='+b.lon
+    +'&dropoff[nickname]='+encodeURIComponent(nm(b.title))
+    +(b.loc?'&dropoff[formatted_address]='+encodeURIComponent(b.loc):'');
+  window.open(url,'_blank');
 }
 function gapNav(aid,bid,mode){
   const a=T().items.find(i=>i.id===aid), b=T().items.find(i=>i.id===bid);
@@ -827,6 +850,20 @@ function agodaGo(id){
 function recAgoda(i){
   const p=_recResults[i];
   if(p) openAgodaFor(p.title);
+}
+
+/* ── KKday 門票（聯盟分潤外連）── */
+function kkdayUrl(name){
+  const clean=String(name||'').split('（')[0].trim(); // 去除雙語括號中的當地文，關鍵字更準
+  return 'https://www.kkday.com/zh-tw/product/productlist/?keyword='+encodeURIComponent(clean)+'&cid='+encodeURIComponent(KKDAY_CID);
+}
+function kkdayGo(id){
+  const x=T().items.find(i=>i.id===id);
+  if(x) window.open(kkdayUrl(x.title),'_blank');
+}
+function recKkday(i){
+  const p=_recResults[i];
+  if(p) window.open(kkdayUrl(p.title),'_blank');
 }
 
 /* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
@@ -1479,10 +1516,12 @@ async function recAsk(){ // 開放式 AI 提問推薦
   }catch(e){ $('recList').innerHTML='<div class="geo-hint">'+geminiErrMsg(e)+'</div>'; }
 }
 function recRow(name,sub,i){
-  const agoda=(AGODA_CID&&(isHotelName(name)||_recCat==='住宿'))?`<button class="mini agoda-btn" onclick="recAgoda(${i})">🏨 Agoda</button>`:'';
+  const isHotel=isHotelName(name)||_recCat==='住宿';
+  const agoda=(AGODA_CID&&isHotel)?`<button class="mini agoda-btn" onclick="recAgoda(${i})">🏨 Agoda</button>`:'';
+  const kkday=(KKDAY_CID&&!isHotel)?`<button class="mini kkday-btn" onclick="recKkday(${i})">🎫 KKday</button>`:'';
   return `<div class="geo-item" style="display:flex;align-items:center;gap:10px">
     <div style="flex:1"><div class="gn">${esc(name)}</div><div class="ga">${sub}</div></div>
-    <div style="display:flex;flex-direction:column;gap:6px">${agoda}<button class="mini nav-btn" onclick="recAdd(${i})">＋ 加入</button></div>
+    <div style="display:flex;flex-direction:column;gap:6px">${agoda}${kkday}<button class="mini nav-btn" onclick="recAdd(${i})">＋ 加入</button></div>
   </div>`;
 }
 async function recSearch(label,query){
