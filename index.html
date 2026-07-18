@@ -175,6 +175,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 .it-transit{font-size:.85rem;color:var(--teal-d);font-weight:700;margin-top:3px;background:#eef1e6;border-radius:8px;padding:5px 10px;display:inline-block}
 .it-flight{font-size:.85rem;color:#5b6b8c;font-weight:700;margin-top:3px;background:#eaeef5;border-radius:8px;padding:5px 10px;display:inline-block}
 .mini.flight-btn{background:#e7ecf5;color:#5b6b8c}
+.mini.agoda-btn{background:#f6e6e2;color:#b3766e}
 @media(max-width:600px){
   .fx-box{grid-template-columns:1fr}
   .fx-swap{justify-self:center;transform:rotate(90deg)}
@@ -426,6 +427,10 @@ const GOOGLE_KEY = 'AIzaSyCZ4YjjDKqQ1erOwCDuU_lgBTK2mzHBdPw';
    留空時查航班仍可帶出航空公司與航線（免費 adsbdb.com），並附 FlightRadar24 即時動態連結。 */
 const AERO_KEY = 'f45ca19086msh9c2245e2189787bp11f1c0jsn2d5a79dd3f17';
 
+/* Agoda 聯盟分潤 CID（選配）：行程中的飯店/住宿會出現「Agoda 訂房」按鈕，
+   外連到 Agoda 搜尋該飯店的頁面並帶上你的分潤 ID。留空停用。 */
+const AGODA_CID = '1745675';
+
 /* AI 功能（問 AI / AI 精選 / IG 智慧抽取）走後端代理：
    Gemini 金鑰存在 Apps Script 的「指令碼屬性」（屬性名 GEMINI_KEY），不會出現在前端程式碼，
    避免金鑰外洩（GitHub secret scanning 也不會擋）。設定方式見 README。
@@ -638,6 +643,7 @@ function renderPlan(){
         ${(x.loc||x.lat)?`<button class="mini nav-btn" onclick="navTo('${x.id}')">🧭 導航</button>`:''}
         ${x.phone?`<button class="mini call-btn" onclick="callTo('${x.id}')">📞 打電話</button>`:''}
         ${x.flight?`<button class="mini flight-btn" onclick="window.open('https://www.flightradar24.com/data/flights/${esc(x.flight.toLowerCase())}','_blank')">✈️ 航班動態</button>`:''}
+        ${(AGODA_CID&&isHotelName(x.title))?`<button class="mini agoda-btn" onclick="agodaGo('${x.id}')">🏨 Agoda 訂房</button>`:''}
         ${x.blogUrl?`<button class="mini blog-btn" onclick="window.open('${esc(x.blogUrl)}','_blank')">📖 看遊記</button>`:''}
         <button class="mini" onclick="openItem('${x.id}')">編輯</button>
         <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
@@ -701,6 +707,24 @@ function callTo(id){
   const x=T().items.find(i=>i.id===id);
   if(!x||!x.phone) return;
   location.href='tel:'+x.phone.replace(/[^\d+]/g,'');
+}
+
+/* ── Agoda 訂房（聯盟分潤外連）── */
+function isHotelName(s){
+  return /飯店|酒店|旅館|旅店|民宿|青年旅舍|會館|溫泉旅|hotel|resort|inn|hostel|motel|suites|villa|ホテル|旅館|호텔/i.test(s||'');
+}
+function agodaUrl(name){
+  const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.｜|]/g,' '):'';
+  return 'https://www.agoda.com/Search?cid='+encodeURIComponent(AGODA_CID)+'&textToSearch='+encodeURIComponent((name||'')+dest);
+}
+function agodaGo(id){
+  const x=T().items.find(i=>i.id===id);
+  if(!x) return;
+  window.open(agodaUrl(x.title),'_blank');
+}
+function recAgoda(i){
+  const p=_recResults[i]; if(!p) return;
+  window.open(agodaUrl(p.title),'_blank');
 }
 
 /* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
@@ -1301,7 +1325,7 @@ async function publishTemplate(){
 }
 
 /* ================= 探索推薦 / IG 帶入 ================= */
-let _recResults=[];
+let _recResults=[], _recCat='';
 function openRec(){
   $('recDest').textContent=T().trip.dest? '｜'+T().trip.dest : '';
   $('aiChip').style.display=aiOn()?'inline-block':'none';
@@ -1314,6 +1338,7 @@ function openRec(){
 }
 function recTargetDay(){ return +($('recDay').value||curDay)||1; }
 async function recAsk(){ // 開放式 AI 提問推薦
+  _recCat='';
   const q=$('aiAsk').value.trim();
   if(!q){ toast('請輸入你想問的問題'); return; }
   if(!aiOn()){ toast('此功能需要部署後端並設定 GEMINI_KEY（見 README）'); return; }
@@ -1329,13 +1354,15 @@ async function recAsk(){ // 開放式 AI 提問推薦
   }catch(e){ $('recList').innerHTML='<div class="geo-hint">'+geminiErrMsg(e)+'</div>'; }
 }
 function recRow(name,sub,i){
+  const agoda=(AGODA_CID&&(isHotelName(name)||_recCat==='住宿'))?`<button class="mini agoda-btn" onclick="recAgoda(${i})">🏨 Agoda</button>`:'';
   return `<div class="geo-item" style="display:flex;align-items:center;gap:10px">
     <div style="flex:1"><div class="gn">${esc(name)}</div><div class="ga">${sub}</div></div>
-    <button class="mini nav-btn" onclick="recAdd(${i})">＋ 加入</button>
+    <div style="display:flex;flex-direction:column;gap:6px">${agoda}<button class="mini nav-btn" onclick="recAdd(${i})">＋ 加入</button></div>
   </div>`;
 }
 async function recSearch(label,query){
   const dest=T().trip.dest;
+  _recCat=label;
   if(!dest){ toast('請先到「旅程設定」填目的地'); return; }
   if(!GOOGLE_KEY){ $('recList').innerHTML='<div class="geo-hint">熱門排行需要 GOOGLE_KEY（見 README）。你仍可用下方 IG 文字帶入，或用行程的「🔍 搜尋」。</div>'; return; }
   $('recList').innerHTML='<div class="geo-hint">搜尋'+label+'中…</div>';
