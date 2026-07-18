@@ -185,6 +185,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 .mini.flight-btn{background:#e7ecf5;color:#5b6b8c}
 .mini.agoda-btn{background:#f6e6e2;color:#b3766e}
 .mini.kkday-btn{background:#e2efee;color:#4e8a85}
+.mini.reserve-btn{background:#f6ecdd;color:#a5793f}
 @media(max-width:600px){
   .fx-box{grid-template-columns:1fr}
   .fx-swap{justify-self:center;transform:rotate(90deg)}
@@ -404,8 +405,8 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <button class="chip" id="aiChip" onclick="recAI()" style="display:none">🤖 AI 精選</button>
     </div>
     <div class="field">
-      <label>📋 從 IG / 社群貼文帶入（貼上文字，自動抽出景點）</label>
-      <textarea id="igText" rows="2" placeholder="把 IG 貼文的文字複製貼到這裡"></textarea>
+      <label>📋 從 IG / 社群貼文帶入（貼連結或文字，自動抽出景點）</label>
+      <textarea id="igText" rows="2" placeholder="貼上 IG Reels / 貼文連結，或直接貼文字內文"></textarea>
       <div style="margin-top:8px"><button class="btn btn-o" onclick="igExtract()">🔎 抽取地點</button></div>
     </div>
     <div class="field"><label>加入到哪一天</label><select id="recDay"></select></div>
@@ -657,8 +658,9 @@ function renderPlan(){
         ${(x.loc||x.lat)?`<button class="mini nav-btn" onclick="navTo('${x.id}')">🧭 導航</button>`:''}
         ${x.phone?`<button class="mini call-btn" onclick="callTo('${x.id}')">📞 打電話</button>`:''}
         ${x.flight?`<button class="mini flight-btn" onclick="window.open('https://www.flightradar24.com/data/flights/${esc(x.flight.toLowerCase())}','_blank')">✈️ 航班動態</button>`:''}
-        ${(AGODA_CID&&isHotelName(x.title))?`<button class="mini agoda-btn" onclick="agodaGo('${x.id}')">🏨 Agoda 訂房</button>`:''}
-        ${(KKDAY_CID&&!isHotelName(x.title)&&!x.flight)?`<button class="mini kkday-btn" onclick="kkdayGo('${x.id}')">🎫 KKday 門票</button>`:''}
+        ${(AGODA_CID&&kindOf(x)==='hotel')?`<button class="mini agoda-btn" onclick="agodaGo('${x.id}')">🏨 Agoda 訂房</button>`:''}
+        ${(kindOf(x)==='food'&&!x.flight)?`<button class="mini reserve-btn" onclick="reserveGo('${x.id}')">🍽️ 餐廳訂位</button>`:''}
+        ${(KKDAY_CID&&kindOf(x)==='spot'&&!x.flight)?`<button class="mini kkday-btn" onclick="kkdayGo('${x.id}')">🎫 KKday 門票</button>`:''}
         ${x.blogUrl?`<button class="mini blog-btn" onclick="window.open('${esc(x.blogUrl)}','_blank')">📖 看遊記</button>`:''}
         <button class="mini" onclick="openItem('${x.id}')">編輯</button>
         <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
@@ -852,6 +854,49 @@ function recAgoda(i){
   if(p) openAgodaFor(p.title);
 }
 
+/* ── 餐廳訂位（依地區選當地系統）── */
+function isFoodName(s){
+  return /餐廳|食堂|燒肉|烤肉|燒烤|居酒屋|拉麵|壽司|料理|火鍋|咖啡|甜點|早午餐|小吃|麵店|豬腳|海鮮|市場美食|restaurant|cafe|coffee|bbq|bistro|diner|grill|ramen|sushi|izakaya|식당|맛집|고기|횟집|ラーメン|すし|焼肉|食堂/i.test(s||'');
+}
+function kindOf(x){ // 優先用 Google 類型，缺少時以名稱判斷
+  if(x.kind==='hotel'||x.kind==='food'||x.kind==='spot') return x.kind;
+  if(isHotelName(x.title)) return 'hotel';
+  if(isFoodName(x.title)) return 'food';
+  return 'spot';
+}
+function localPart(title){ // 雙語名稱取括號內當地文（訂位系統搜當地名最準）
+  const m=String(title||'').match(/（([^）]+)）/);
+  return m? m[1] : String(title||'').split('（')[0].trim();
+}
+function openReserve(title,lat,lon){
+  const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
+  const zh=String(title||'').split('（')[0].trim(), local=localPart(title);
+  if(lat&&inKoreaCoord(lat,lon)){
+    if(isMobile){ // 韓國：手機開 CatchTable（訂位 App 網頁版）
+      window.open('https://app.catchtable.co.kr/ct/search?keyword='+encodeURIComponent(local),'_blank');
+    }else{        // 電腦：Naver 店家頁（內建 Naver 예약 訂位）
+      window.open('https://map.naver.com/p/search/'+encodeURIComponent(local),'_blank');
+    }
+    return;
+  }
+  const la=+lat, lo=+lon;
+  if(lat&&la>=24&&la<=45.8&&lo>=122.7&&lo<=146.2){ // 日本：Tabelog 中文版（直達店家＋網上預訂）
+    window.open('https://tabelog.com/tw/rstLst/?sw='+encodeURIComponent(local),'_blank');
+    return;
+  }
+  // 其他地區：Google Maps 店家頁（內建「訂位」Reserve with Google）
+  const dest=T().trip.dest? ' '+T().trip.dest.replace(/[・.｜|]/g,' '):'';
+  window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(zh+dest),'_blank');
+}
+function reserveGo(id){
+  const x=T().items.find(i=>i.id===id);
+  if(x) openReserve(x.title,x.lat,x.lon);
+}
+function recReserve(i){
+  const p=_recResults[i];
+  if(p) openReserve(p.title,p.lat,p.lon);
+}
+
 /* ── KKday 門票（聯盟分潤外連）── */
 function kkdayUrl(name){
   const clean=String(name||'').split('（')[0].trim(); // 去除雙語括號中的當地文，關鍵字更準
@@ -867,7 +912,7 @@ function recKkday(i){
 }
 
 /* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
-let _geoResults=[], _geoPicked=null, _blogResults=[], _blogPicked=null;
+let _geoResults=[], _geoPicked=null, _geoKind='', _blogResults=[], _blogPicked=null;
 function decodeEntities(s){ const t=document.createElement('textarea'); t.innerHTML=s||''; return t.value; }
 async function blogSearch(q){
   if(!BLOG_URL) return [];
@@ -897,7 +942,7 @@ async function googleSearch(q,pageSize){ // Google Places API (New)，需 GOOGLE
     const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
-        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount'},
+        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount,places.types'},
       body:JSON.stringify({textQuery:q,languageCode:lang,pageSize:pageSize||10})
     });
     const j=await r.json();
@@ -916,13 +961,17 @@ async function googleSearch(q,pageSize){ // Google Places API (New)，需 GOOGLE
       const localAddr=lp&&lp.formattedAddress||'';
       // 用當地語地址中的國名判斷地點是否真的位於旅程當地國
       const inLocal = ll==='ko'? /대한민국/.test(localAddr) : ll==='ja'? /日本/.test(localAddr) : false;
+      // 地點類型：Google types → hotel / food / spot
+      const types=p.types||[];
+      const kind= types.includes('lodging')? 'hotel'
+        : types.some(t=>['restaurant','food','cafe','bakery','bar','meal_takeaway','meal_delivery','coffee_shop','dessert_shop','ice_cream_shop'].includes(t))? 'food' : 'spot';
       return {
         name:(inLocal&&localName&&localName!==zhName)? zhName+'（'+localName+'）' : zhName,
         display_name: inLocal? localAddr : (p.formattedAddress||''),
         lat:String(p.location&&p.location.latitude||''),
         lon:String(p.location&&p.location.longitude||''),
         extratags:{phone:p.internationalPhoneNumber||p.nationalPhoneNumber||''},
-        rating:p.rating||0, count:p.userRatingCount||0
+        rating:p.rating||0, count:p.userRatingCount||0, kind
       };
     });
   }catch(e){ return null; }
@@ -983,6 +1032,7 @@ function geoPick(i){
   const phone=osmPhone(r.extratags);
   if(phone) $('fPhone').value=phone;
   _geoPicked={lat:r.lat,lon:r.lon};
+  _geoKind=r.kind||'';
   $('geoResults').classList.remove('open');
   toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此資料源無電話，可手動補填）✅');
   transitSearch(false); // 背景自動找最近車站帶入大眾運輸指引
@@ -1131,7 +1181,7 @@ function pickBlog(i){ pickBlogSilent(i); toast('已帶入遊記連結 📖'); }
 function clearBlog(){ _blogPicked=null; $('blogField').style.display='none'; }
 let editingId=null;
 function openItem(id){
-  editingId=id||null; _geoPicked=null; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo='';
+  editingId=id||null; _geoPicked=null; _geoKind=''; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo='';
   $('geoResults').classList.remove('open'); $('geoResults').innerHTML='';
   $('flightInfoHint').style.display='none'; $('flightInfoHint').textContent='';
   clearBlog();
@@ -1147,6 +1197,7 @@ function openItem(id){
     _flightInfo=x.flightInfo||'';
     if(_flightInfo){ $('flightInfoHint').style.display='block'; $('flightInfoHint').textContent='✈️ '+_flightInfo; }
     if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
+    _geoKind=x.kind||'';
     if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
       $('blogField').style.display='block'; $('blogChipText').textContent=_blogPicked.title; }
   }else{
@@ -1166,6 +1217,7 @@ function saveItem(){
               flight:flightNo,flightInfo:flightNo?_flightInfo:'',
               dep:flightNo?$('fDep').value:'',arr:flightNo?$('fArr').value:'',
               lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:'',
+              kind:_geoKind||'',
               blogTitle:_blogPicked?_blogPicked.title:'',blogUrl:_blogPicked?_blogPicked.url:''};
   if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
   else{ T().items.push({id:uid(),...data}); }
@@ -1326,8 +1378,9 @@ function closeModal(id){
 document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)closeModal(m.id);}));
 
 /* ================= 帳號 / 雲端同步 ================= */
-let syncTimer=null, syncing=false, lastSyncText='';
+let syncTimer=null, syncing=false, lastSyncText='', _pendingSave=false, _dirty=false;
 function cloudPayload(){ return JSON.stringify({trips:state.trips, activeId:state.activeId}); }
+function localMaxUpdated(){ return Math.max(0,...state.trips.map(t=>t.updatedAt||0)); }
 async function api(action, params){
   const res=await fetch(API_URL,{
     method:'POST',
@@ -1358,7 +1411,7 @@ function renderCloudBody(){
         <button class="btn btn-p" onclick="doLogin()">登入</button>
       </div>`;
   }else{
-    b.innerHTML=`<div class="cloud-status">已登入：<b>${esc(state.account.user)}</b><br>${lastSyncText||'尚未同步'}</div>
+    b.innerHTML=`<div class="cloud-status">已登入：<b>${esc(state.account.user)}</b>・自動雙向同步中<br>${lastSyncText||'尚未同步'}</div>
       <div class="modal-acts" style="justify-content:flex-start">
         <button class="btn btn-p" onclick="cloudSave(true)">⬆️ 立即上傳</button>
         <button class="btn btn-o" onclick="cloudLoad(true)">⬇️ 從雲端下載</button>
@@ -1404,24 +1457,60 @@ function doLogout(){
 }
 function scheduleCloudSave(){
   if(!API_URL||!state.account) return;
+  _dirty=true;
   clearTimeout(syncTimer);
   syncTimer=setTimeout(()=>cloudSave(),3000);
 }
 async function cloudSave(manual){
-  if(!API_URL||!state.account||syncing) return;
+  if(!API_URL||!state.account) return;
+  if(syncing){ _pendingSave=true; return; } // 上傳中有新修改 → 排隊，完成後補傳
   syncing=true;
   try{
-    const r=await api('save',{user:state.account.user,token:state.account.token,data:cloudPayload(),updatedAt:Date.now()});
+    const r=await api('save',{user:state.account.user,token:state.account.token,data:cloudPayload(),updatedAt:localMaxUpdated()});
     if(r.error){
       if(manual) toast('❌ '+r.error);
       if(r.error.includes('登入')) { state.account=null; save(false); renderCloudBtn(); }
     }else{
+      _dirty=false;
       lastSyncText='上次同步：'+new Date().toLocaleString('zh-TW');
       if(manual){ toast('已上傳到雲端 ✅'); renderCloudBody(); }
     }
   }catch(e){ if(manual) toast('❌ 連線失敗'); }
   syncing=false;
+  if(_pendingSave){ _pendingSave=false; cloudSave(); } // 補傳排隊中的修改
 }
+/* 自動雙向同步：定時＋回到分頁時比對雲端版本，新的自動載入、舊的自動補傳 */
+async function cloudPoll(){
+  if(!API_URL||!state.account||syncing) return;
+  if(document.querySelector('.modal-bg.open')) return; // 正在編輯視窗，不打擾
+  try{
+    const r=await api('load',{user:state.account.user,token:state.account.token});
+    if(r.error||!r.data) return;
+    const cloudAt=Number(r.updatedAt)||0, localAt=localMaxUpdated();
+    if(_dirty||localAt>cloudAt){ scheduleCloudSave(); return; } // 本地較新 → 自動補上傳
+    if(cloudAt>localAt){ // 雲端較新 → 自動載入
+      const j=JSON.parse(r.data);
+      if(j.trips&&j.trips.length){
+        const keepActive=state.activeId&&j.trips.some(t=>t.id===state.activeId);
+        state.trips=j.trips;
+        state.activeId=keepActive? state.activeId
+          : (j.activeId&&j.trips.some(t=>t.id===j.activeId)? j.activeId : j.trips[0].id);
+        localStorage.setItem(LS_KEY,JSON.stringify(state)); // 直接寫入，不觸發再上傳
+        renderAll();
+        lastSyncText='上次同步：'+new Date().toLocaleString('zh-TW');
+        toast('☁️ 已同步雲端最新行程');
+      }
+    }
+  }catch(e){}
+}
+/* 關閉/切走頁面前，未上傳的修改用 sendBeacon 搶救送出 */
+window.addEventListener('pagehide',()=>{
+  if(_dirty&&API_URL&&state.account&&navigator.sendBeacon){
+    const body=JSON.stringify({action:'save',user:state.account.user,token:state.account.token,
+      data:cloudPayload(),updatedAt:localMaxUpdated()});
+    navigator.sendBeacon(API_URL,new Blob([body],{type:'text/plain;charset=utf-8'}));
+  }
+});
 async function cloudLoad(manual){
   if(!API_URL||!state.account) return;
   try{
@@ -1516,12 +1605,15 @@ async function recAsk(){ // 開放式 AI 提問推薦
   }catch(e){ $('recList').innerHTML='<div class="geo-hint">'+geminiErrMsg(e)+'</div>'; }
 }
 function recRow(name,sub,i){
-  const isHotel=isHotelName(name)||_recCat==='住宿';
-  const agoda=(AGODA_CID&&isHotel)?`<button class="mini agoda-btn" onclick="recAgoda(${i})">🏨 Agoda</button>`:'';
-  const kkday=(KKDAY_CID&&!isHotel)?`<button class="mini kkday-btn" onclick="recKkday(${i})">🎫 KKday</button>`:'';
+  const rr=_recResults[i]||{};
+  const k= rr.kind || (_recCat==='住宿'?'hotel':_recCat==='美食'?'food'
+          : isHotelName(name)?'hotel': isFoodName(name)?'food':'spot');
+  const agoda=(AGODA_CID&&k==='hotel')?`<button class="mini agoda-btn" onclick="recAgoda(${i})">🏨 Agoda</button>`:'';
+  const reserve=(k==='food')?`<button class="mini reserve-btn" onclick="recReserve(${i})">🍽️ 訂位</button>`:'';
+  const kkday=(KKDAY_CID&&k==='spot')?`<button class="mini kkday-btn" onclick="recKkday(${i})">🎫 KKday</button>`:'';
   return `<div class="geo-item" style="display:flex;align-items:center;gap:10px">
     <div style="flex:1"><div class="gn">${esc(name)}</div><div class="ga">${sub}</div></div>
-    <div style="display:flex;flex-direction:column;gap:6px">${agoda}${kkday}<button class="mini nav-btn" onclick="recAdd(${i})">＋ 加入</button></div>
+    <div style="display:flex;flex-direction:column;gap:6px">${agoda}${reserve}${kkday}<button class="mini nav-btn" onclick="recAdd(${i})">＋ 加入</button></div>
   </div>`;
 }
 async function recSearch(label,query){
@@ -1536,7 +1628,7 @@ async function recSearch(label,query){
     // 依「評分 × log(評論數)」排序 = 當下最火紅
     _recResults=list.map(p=>({
       title:p.name,loc:p.display_name,phone:p.extratags.phone,
-      lat:p.lat,lon:p.lon,rating:p.rating,count:p.count
+      lat:p.lat,lon:p.lon,rating:p.rating,count:p.count,kind:p.kind||''
     })).sort((a,b)=>(b.rating*Math.log10(b.count+1))-(a.rating*Math.log10(a.count+1)));
     $('recList').innerHTML=_recResults.map((p,i)=>
       recRow(p.title,`⭐ ${p.rating}（${p.count.toLocaleString()} 則評論）<br>${esc(p.loc)}`,i)).join('');
@@ -1547,7 +1639,7 @@ function recAdd(i){
   const day=recTargetDay();
   T().items.push({id:uid(),day,time:'',title:p.title,loc:p.loc,phone:p.phone,
     transit:'',note:p.reason||'',flight:'',flightInfo:'',dep:'',arr:'',
-    lat:p.lat||'',lon:p.lon||'',blogTitle:'',blogUrl:''});
+    lat:p.lat||'',lon:p.lon||'',kind:p.kind||'',blogTitle:'',blogUrl:''});
   curDay=day;
   save(); renderPlan(); renderStats();
   toast(`已加入 Day ${day}：${p.title} ✅`);
@@ -1599,8 +1691,19 @@ async function recAI(){
   }catch(e){ $('recList').innerHTML='<div class="geo-hint">'+geminiErrMsg(e)+'</div>'; }
 }
 async function igExtract(){
-  const text=$('igText').value.trim();
-  if(!text){ toast('請先貼上 IG 貼文文字'); return; }
+  let text=$('igText').value.trim();
+  if(!text){ toast('請先貼上 IG 連結或貼文文字'); return; }
+  // 貼的是 IG 連結 → 後端代抓貼文內文
+  const igUrl=text.match(/https?:\/\/(www\.)?instagram\.com\/[^\s]+/);
+  if(igUrl){
+    if(!API_URL){ $('recList').innerHTML='<div class="geo-hint">讀取 IG 連結需要後端（見 README），請改貼貼文文字</div>'; return; }
+    $('recList').innerHTML='<div class="geo-hint">讀取 IG 貼文中…</div>';
+    try{
+      const r=await api('igFetch',{url:igUrl[0]});
+      if(r.error){ $('recList').innerHTML='<div class="geo-hint">⚠️ '+esc(r.error)+'</div>'; return; }
+      text=r.text;
+    }catch(e){ $('recList').innerHTML='<div class="geo-hint">⚠️ 連線失敗，請改貼貼文文字</div>'; return; }
+  }
   $('recList').innerHTML='<div class="geo-hint">抽取地點中…</div>';
   let names=[];
   if(aiOn()){
@@ -1719,6 +1822,11 @@ function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats();
   renderTemplates();   // 範本市集
   handleShareTarget(); // Android PWA 分享帶入
   if(API_URL&&state.account) cloudLoad(); // 開啟頁面時自動拉最新雲端資料
+  if(API_URL){ // 自動雙向同步：每 45 秒 + 回到分頁時檢查
+    setInterval(cloudPoll,45000);
+    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) cloudPoll(); });
+    window.addEventListener('focus',()=>cloudPoll());
+  }
 })();
 </script>
 </body>
