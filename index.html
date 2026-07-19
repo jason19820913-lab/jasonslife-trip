@@ -1442,13 +1442,13 @@ async function doLogin(){
     }else{
       cloudSave();
     }
-    renderCloudBody(); toast('登入成功 ✅');
+    renderCloudBody(); renderTemplates(); toast('登入成功 ✅');
   }catch(e){ toast('❌ 連線失敗，請稍後再試'); }
 }
 function doLogout(){
   if(!confirm('登出後此裝置的資料仍會保留在瀏覽器，但不再自動同步。確定登出？')) return;
   state.account=null; save(false);
-  renderCloudBtn(); renderCloudBody();
+  renderCloudBtn(); renderCloudBody(); renderTemplates();
 }
 function scheduleCloudSave(){
   if(!API_URL||!state.account) return;
@@ -1524,18 +1524,40 @@ async function cloudLoad(manual){
 }
 
 /* ================= 旅程範本市集 ================= */
+const ADMIN_USER='jason123455'; // 管理員帳號：登入後可刪除/改名任何範本（後端會再驗證）
+function isAdmin(){ return !!(state.account&&state.account.user&&state.account.user.toLowerCase()===ADMIN_USER.toLowerCase()); }
+async function adminDelTemplate(code,name){
+  if(!confirm(`【管理員】確定下架範本「${name}」？此動作無法復原。`)) return;
+  try{
+    const r=await api('delTemplate',{code,user:state.account.user,token:state.account.token});
+    if(r.error){ toast('❌ '+r.error); return; }
+    toast('範本已下架 ✅'); renderTemplates();
+  }catch(e){ toast('❌ 連線失敗'); }
+}
+async function adminRenameTemplate(code,oldName){
+  const name=prompt('【管理員】範本新名稱：',oldName);
+  if(name===null||!name.trim()) return;
+  try{
+    const r=await api('renameTemplate',{code,name:name.trim(),user:state.account.user,token:state.account.token});
+    if(r.error){ toast('❌ '+r.error); return; }
+    toast('已改名 ✅'); renderTemplates();
+  }catch(e){ toast('❌ 連線失敗'); }
+}
 async function renderTemplates(){
   const box=$('tplList');
   if(!API_URL){ box.innerHTML='<span class="muted">此功能需要網站管理者部署後端（見 README）</span>'; return; }
   try{
     const r=await api('listTemplates',{});
     if(!r.list||!r.list.length){ box.innerHTML='<span class="muted">還沒有範本，成為第一個分享的人吧！</span>'; return; }
+    const admin=isAdmin();
     box.innerHTML=r.list.map(t=>`
       <div class="trip-row" onclick="applyTemplate('${esc(t.code)}','${esc(t.name)}')">
         <div class="ti">
           <div class="tn">🧩 ${esc(t.name)}</div>
           <div class="tm">📍 ${esc(t.dest)||'未標示'} ${t.days?'・'+t.days+' 天':''} ・ by ${esc(t.author)}</div>
         </div>
+        ${admin?`<button class="mini" onclick="event.stopPropagation();adminRenameTemplate('${esc(t.code)}','${esc(t.name)}')">✏️</button>
+        <button class="mini del" onclick="event.stopPropagation();adminDelTemplate('${esc(t.code)}','${esc(t.name)}')">🗑</button>`:''}
         <button class="mini nav-btn" onclick="event.stopPropagation();applyTemplate('${esc(t.code)}','${esc(t.name)}')">套用</button>
       </div>`).join('');
   }catch(e){ box.innerHTML='<span class="muted">⚠️ 範本載入失敗，請稍後重新整理</span>'; }
