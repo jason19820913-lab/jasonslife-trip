@@ -247,9 +247,9 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     </div>
     <div class="card">
       <h2><span class="dot"></span>分享與備份</h2>
-      <p class="muted" style="margin-bottom:12px">「分享連結」會把目前這份旅程送給旅伴（載入後成為對方的新旅程）；「匯出備份」則包含你全部的旅程。</p>
+      <p class="muted" style="margin-bottom:12px">「共同編輯連結」給旅伴打開後即加入這份旅程——行程、記帳、清單全部即時互相同步；「匯出備份」包含你全部的旅程。</p>
       <div class="share-row">
-        <button class="btn btn-p" onclick="shareLink()">🔗 複製分享連結</button>
+        <button class="btn btn-p" onclick="shareLink()">🤝 複製共同編輯連結</button>
         <button class="btn btn-o" onclick="exportJSON()">⬇️ 匯出備份</button>
         <button class="btn btn-o" onclick="document.getElementById('importFile').click()">⬆️ 匯入備份</button>
         <button class="btn btn-ghost" onclick="resetAll()">重設全部</button>
@@ -548,6 +548,7 @@ function save(touch){
   if(touch!==false) T().updatedAt=Date.now();
   localStorage.setItem(LS_KEY, JSON.stringify(state));
   scheduleCloudSave();
+  if(touch!==false&&typeof scheduleCollabPush==='function') scheduleCollabPush();
 }
 
 /* ================= 工具 ================= */
@@ -1683,9 +1684,15 @@ async function cloudPoll(){
 }
 /* 關閉/切走頁面前，未上傳的修改用 sendBeacon 搶救送出 */
 window.addEventListener('pagehide',()=>{
-  if(_dirty&&API_URL&&state.account&&navigator.sendBeacon){
+  if(!API_URL||!navigator.sendBeacon) return;
+  if(_dirty&&state.account){
     const body=JSON.stringify({action:'save',user:state.account.user,token:state.account.token,
       data:cloudPayload(),updatedAt:localMaxUpdated()});
+    navigator.sendBeacon(API_URL,new Blob([body],{type:'text/plain;charset=utf-8'}));
+  }
+  const t=T();
+  if(_collabDirty&&t.collab){ // 協作旅程未推送的修改也搶救送出
+    const body=JSON.stringify({action:'collabSave',code:t.collab,data:collabPayload(t),updatedAt:t.updatedAt||Date.now()});
     navigator.sendBeacon(API_URL,new Blob([body],{type:'text/plain;charset=utf-8'}));
   }
 });
@@ -1934,22 +1941,95 @@ function handleShareTarget(){ // Android PWA：從 IG 分享進來（manifest sh
   igExtract();
 }
 
-/* ================= 分享 / 匯出入 ================= */
+/* ================= 分享（共同編輯）/ 匯出入 ================= */
+function collabPayload(t){
+  return JSON.stringify({v:1,trip:t.trip,items:t.items,checklist:t.checklist,
+    members:t.members||[],bills:t.bills||[],updatedAt:t.updatedAt||Date.now()});
+}
+function applyCollab(t,j){
+  t.trip=j.trip; t.items=j.items||[]; t.checklist=j.checklist||[];
+  t.members=j.members||[]; t.bills=j.bills||[]; t.updatedAt=j.updatedAt||Date.now();
+}
 async function shareLink(){
-  const payload=JSON.stringify({v:2,trip:T()});
+  const t=T();
   let url='';
-  if(API_URL){ // 用自家後端產生短代碼 → 短網址
-    toast('產生短連結中…');
+  if(API_URL){ // 建立/沿用協作房間 → 共同編輯連結
+    toast('產生共同編輯連結中…');
     try{
-      const r=await api('share',{data:payload});
-      if(r.code) url=location.origin+location.pathname+'#s='+r.code;
+      if(!t.collab){
+        const r=await api('collabCreate',{data:collabPayload(t),updatedAt:t.updatedAt||Date.now()});
+        if(r.code){ t.collab=r.code; save(false); }
+      }
+      if(t.collab) url=location.origin+location.pathname+'#c='+t.collab;
     }catch(e){}
   }
-  if(!url){ // 無後端或失敗 → 退回長連結（資料全編碼在網址中）
-    url=location.origin+location.pathname+'#trip='+btoa(unescape(encodeURIComponent(payload)));
+  if(!url){ // 無後端 → 退回快照長連結
+    url=location.origin+location.pathname+'#trip='+btoa(unescape(encodeURIComponent(JSON.stringify({v:2,trip:t}))));
+    navigator.clipboard.writeText(url).then(()=>toast('分享連結已複製（快照版，不會即時同步）🔗'))
+      .catch(()=>{ prompt('複製此連結分享：',url); });
+    return;
   }
-  navigator.clipboard.writeText(url).then(()=>toast('分享連結已複製！旅伴打開後會存成一份新旅程 🔗'))
+  navigator.clipboard.writeText(url).then(()=>toast('共同編輯連結已複製！旅伴打開就加入這份旅程，所有內容即時互相同步 🤝'))
     .catch(()=>{ prompt('複製此連結分享：',url); });
+}
+/* 旅伴透過 #c= 連結加入共同旅程 */
+async function loadCollabFromHash(){
+  if(!location.hash.startsWith('#c=')) return;
+  const code=location.hash.slice(3);
+  history.replaceState(null,'',location.pathname);
+  if(!API_URL||!code) return;
+  const exist=state.trips.find(t=>t.collab===code);
+  if(exist){ state.activeId=exist.id; save(false); renderAll(); collabPoll(); return; }
+  try{
+    const r=await api('collabGet',{code});
+    if(r.error){ toast('❌ '+r.error); return; }
+    const j=JSON.parse(r.data);
+    const t={id:uid(),collab:code,items:[],checklist:[],members:[],bills:[]};
+    applyCollab(t,j);
+    state.trips.push(t); state.activeId=t.id; curDay=1;
+    localStorage.setItem(LS_KEY,JSON.stringify(state));
+    renderAll(); toast('🤝 已加入共同旅程「'+t.trip.name+'」，內容會即時同步');
+  }catch(e){ toast('❌ 讀取共同旅程失敗，請稍後再試'); }
+}
+/* 協作推送與輪詢 */
+let collabTimer=null,_collabDirty=false,_collabBusy=false;
+function scheduleCollabPush(){
+  const t=T();
+  if(!API_URL||!t.collab) return;
+  _collabDirty=true;
+  clearTimeout(collabTimer);
+  collabTimer=setTimeout(()=>collabPush(),3000);
+}
+async function collabPush(){
+  const t=T();
+  if(!API_URL||!t.collab||_collabBusy) return;
+  _collabBusy=true;
+  try{
+    const r=await api('collabSave',{code:t.collab,data:collabPayload(t),updatedAt:t.updatedAt||Date.now()});
+    if(r&&r.stale&&r.data){ // 旅伴改了更新的版本 → 改為拉取
+      applyCollab(t,JSON.parse(r.data));
+      localStorage.setItem(LS_KEY,JSON.stringify(state));
+      renderAll(); toast('🤝 已同步旅伴的最新內容');
+    }
+    if(r&&(r.success||r.stale)) _collabDirty=false;
+  }catch(e){}
+  _collabBusy=false;
+}
+async function collabPoll(){
+  const t=T();
+  if(!API_URL||!t.collab||_collabBusy) return;
+  if(document.querySelector('.modal-bg.open')) return; // 編輯視窗開啟時不打擾
+  try{
+    const r=await api('collabGet',{code:t.collab});
+    if(r.error||!r.data) return;
+    const remoteAt=Number(r.updatedAt)||0, localAt=t.updatedAt||0;
+    if(_collabDirty||localAt>remoteAt){ scheduleCollabPush(); return; }
+    if(remoteAt>localAt){
+      applyCollab(t,JSON.parse(r.data));
+      localStorage.setItem(LS_KEY,JSON.stringify(state));
+      renderAll(); toast('🤝 已同步旅伴的最新內容');
+    }
+  }catch(e){}
 }
 async function loadShareFromHash(){ // 短代碼連結 #s=xxxxxxxx
   if(!location.hash.startsWith('#s=')) return;
@@ -2015,17 +2095,18 @@ function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats();
   $('sCur').innerHTML = $('fxCur').innerHTML;
   $('clNewCat').innerHTML = CATS.map(c=>`<option>${c}</option>`).join('');
   $('fLoc').addEventListener('input',()=>{_geoPicked=null;}); // 手動改地址時清除舊座標，導航改用新地址
-  loadFromHash();      // 舊版長連結 #trip=
+  loadFromHash();       // 舊版長連結 #trip=
   renderAll();
-  loadShareFromHash(); // 短連結 #s=
+  loadShareFromHash();  // 舊版快照短連結 #s=
+  loadCollabFromHash(); // 共同編輯連結 #c=
   loadRates();
   renderTemplates();   // 範本市集
   handleShareTarget(); // Android PWA 分享帶入
   if(API_URL&&state.account) cloudLoad(); // 開啟頁面時自動拉最新雲端資料
-  if(API_URL){ // 自動雙向同步：每 45 秒 + 回到分頁時檢查
-    setInterval(cloudPoll,45000);
-    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) cloudPoll(); });
-    window.addEventListener('focus',()=>cloudPoll());
+  if(API_URL){ // 自動雙向同步：每 45 秒 + 回到分頁時檢查（帳號雲端 + 協作旅程）
+    setInterval(()=>{ cloudPoll(); collabPoll(); },45000);
+    document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ cloudPoll(); collabPoll(); } });
+    window.addEventListener('focus',()=>{ cloudPoll(); collabPoll(); });
   }
 })();
 </script>
