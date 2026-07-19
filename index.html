@@ -213,6 +213,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   <div class="tabs">
     <button class="tab active" data-tab="home"><span class="em">🏠</span>首頁</button>
     <button class="tab" data-tab="plan"><span class="em">🗓️</span>行程</button>
+    <button class="tab" data-tab="bill"><span class="em">💰</span>記帳</button>
     <button class="tab" data-tab="fx"><span class="em">💱</span>匯率</button>
     <button class="tab" data-tab="list"><span class="em">🎒</span>清單</button>
   </div>
@@ -265,6 +266,27 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <button class="mini" onclick="sortDayByTime()">⏱ 這天依時間重新排序</button>
     </div>
     <div class="card" id="planList"></div>
+  </section>
+
+  <!-- 記帳 -->
+  <section id="sec-bill">
+    <div class="card">
+      <h2><span class="dot"></span>👥 旅伴成員</h2>
+      <div class="day-chips" id="memberChips" style="flex-wrap:wrap;overflow:visible"></div>
+      <div class="cl-add">
+        <input id="memberNew" placeholder="輸入旅伴名稱或帳號，例如：小美" onkeydown="if(event.key==='Enter')addMember()">
+        <button class="btn btn-p" onclick="addMember()">＋ 加入成員</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2><span class="dot"></span>🧾 帳單記錄 <span class="muted" id="billCount"></span></h2>
+      <div id="billList"></div>
+      <div style="margin-top:14px"><button class="btn btn-p" onclick="openBill()">＋ 新增帳單</button></div>
+    </div>
+    <div class="card">
+      <h2><span class="dot"></span>📊 費用總結與結算</h2>
+      <div id="billSummary" class="muted">還沒有帳單</div>
+    </div>
   </section>
 
   <!-- 匯率 -->
@@ -386,6 +408,26 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   <div class="modal">
     <h3>☁️ 帳號與雲端同步</h3>
     <div id="cloudBody"></div>
+  </div>
+</div>
+
+<!-- 帳單 modal -->
+<div class="modal-bg" id="billModal">
+  <div class="modal">
+    <h3 id="billModalTitle">新增帳單</h3>
+    <div class="field"><label>項目名稱 *</label><input id="bTitle" placeholder="例如：第一天晚餐 烤肉"></div>
+    <div class="frow">
+      <div class="field"><label>金額 *</label><input id="bAmount" type="number" min="0" step="any" placeholder="0"></div>
+      <div class="field"><label>幣別</label><select id="bCur"></select></div>
+    </div>
+    <div class="field"><label>誰付的錢</label><select id="bPayer"></select></div>
+    <div class="field"><label>分攤成員（點選切換，預設全員均分）</label>
+      <div class="day-chips" id="bParts" style="flex-wrap:wrap;overflow:visible"></div>
+    </div>
+    <div class="modal-acts">
+      <button class="btn btn-ghost" onclick="closeModal('billModal')">取消</button>
+      <button class="btn btn-p" onclick="saveBill()">儲存</button>
+    </div>
   </div>
 </div>
 
@@ -1308,6 +1350,147 @@ function resetChecklist(){
   save(); renderChecklist();
 }
 
+/* ================= 記帳分帳 ================= */
+function B(){ const t=T(); t.members=t.members||[]; t.bills=t.bills||[]; return t; }
+const ZERO_DEC=['JPY','KRW','TWD','VND','IDR']; // 無小數幣別
+function fmtMoney(cur,v){
+  const dec=ZERO_DEC.includes(cur)?0:2;
+  return Number(v).toLocaleString('zh-TW',{maximumFractionDigits:dec,minimumFractionDigits:0});
+}
+function addMember(){
+  const n=$('memberNew').value.trim();
+  if(!n){ toast('請輸入成員名稱'); return; }
+  const t=B();
+  if(t.members.includes(n)){ toast('成員已存在'); return; }
+  t.members.push(n); $('memberNew').value='';
+  save(); renderBillTab(); toast('已加入成員 ✅');
+}
+function delMember(n){
+  const t=B();
+  if(t.bills.some(b=>b.payer===n||(b.parts||[]).includes(n))){ toast('此成員已有帳單記錄，無法移除'); return; }
+  if(!confirm(`移除成員「${n}」？`)) return;
+  t.members=t.members.filter(m=>m!==n);
+  save(); renderBillTab();
+}
+let editingBill=null,_billParts=[];
+function openBill(id){
+  const t=B();
+  if(!t.members.length){ toast('請先加入至少一位成員'); return; }
+  editingBill=id||null;
+  const curs=[[T().trip.currency||'JPY'],['TWD'],...CURRENCIES.map(c=>[c[0]])];
+  const seen=new Set(), opts=[];
+  curs.forEach(c=>{ if(!seen.has(c[0])){ seen.add(c[0]); opts.push(c[0]); } });
+  $('bCur').innerHTML=opts.map(c=>`<option>${c}</option>`).join('');
+  $('bPayer').innerHTML=t.members.map(m=>`<option>${esc(m)}</option>`).join('');
+  if(id){
+    const b=t.bills.find(x=>x.id===id);
+    $('billModalTitle').textContent='編輯帳單';
+    $('bTitle').value=b.title; $('bAmount').value=b.amount;
+    $('bCur').value=b.cur; $('bPayer').value=b.payer;
+    _billParts=[...(b.parts||[])];
+  }else{
+    $('billModalTitle').textContent='新增帳單';
+    $('bTitle').value=''; $('bAmount').value='';
+    $('bCur').value=T().trip.currency||'JPY';
+    _billParts=[...t.members]; // 預設全員均分
+  }
+  renderBillParts();
+  $('billModal').classList.add('open');
+}
+function renderBillParts(){
+  $('bParts').innerHTML=B().members.map(m=>
+    `<button type="button" class="chip ${_billParts.includes(m)?'active':''}" onclick="togglePart('${esc(m)}')">${esc(m)}</button>`).join('');
+}
+function togglePart(m){
+  _billParts=_billParts.includes(m)? _billParts.filter(x=>x!==m):[..._billParts,m];
+  renderBillParts();
+}
+function saveBill(){
+  const title=$('bTitle').value.trim(), amount=parseFloat($('bAmount').value);
+  if(!title){ toast('請輸入項目名稱'); return; }
+  if(!(amount>0)){ toast('請輸入正確金額'); return; }
+  if(!_billParts.length){ toast('至少選一位分攤成員'); return; }
+  const data={title,amount,cur:$('bCur').value,payer:$('bPayer').value,parts:[..._billParts]};
+  const t=B();
+  if(editingBill){ Object.assign(t.bills.find(b=>b.id===editingBill),data); }
+  else{ t.bills.push({id:uid(),ts:Date.now(),...data}); }
+  save(); closeModal('billModal'); renderBillTab(); toast('帳單已儲存 ✅');
+}
+function delBill(id){
+  if(!confirm('確定刪除這筆帳單？')) return;
+  const t=B(); t.bills=t.bills.filter(b=>b.id!==id);
+  save(); renderBillTab();
+}
+/* 結算：最少轉帳次數（貪婪配對） */
+function settle(bal){
+  const cr=[],db=[];
+  Object.entries(bal).forEach(([n,v])=>{ if(v>0.005)cr.push({n,v}); else if(v<-0.005)db.push({n,v:-v}); });
+  cr.sort((a,b)=>b.v-a.v); db.sort((a,b)=>b.v-a.v);
+  const res=[]; let i=0,j=0;
+  while(i<cr.length&&j<db.length){
+    const m=Math.min(cr[i].v,db[j].v);
+    res.push([db[j].n,cr[i].n,m]);
+    cr[i].v-=m; db[j].v-=m;
+    if(cr[i].v<0.005)i++;
+    if(db[j].v<0.005)j++;
+  }
+  return res;
+}
+function renderBillTab(){
+  const t=B();
+  // 成員
+  $('memberChips').innerHTML=t.members.length
+    ? t.members.map(m=>`<button class="chip" onclick="delMember('${esc(m)}')" title="點擊移除">${esc(m)} ✕</button>`).join('')
+    : '<span class="muted">還沒有成員，先把旅伴加進來吧</span>';
+  // 帳單清單
+  $('billCount').textContent=t.bills.length?`（${t.bills.length} 筆）`:'';
+  $('billList').innerHTML=t.bills.length? t.bills.map(b=>`
+    <div class="it-item">
+      <div class="it-body">
+        <div class="it-title">${esc(b.title)}　<span style="color:var(--teal-d)">${b.cur} ${fmtMoney(b.cur,b.amount)}</span></div>
+        <div class="it-loc">💳 ${esc(b.payer)} 先付 ・ ${b.parts.length} 人分攤（${b.parts.map(esc).join('、')}）・ 每人 ${b.cur} ${fmtMoney(b.cur,b.amount/b.parts.length)}</div>
+      </div>
+      <div class="it-acts">
+        <button class="mini" onclick="openBill('${b.id}')">編輯</button>
+        <button class="mini del" onclick="delBill('${b.id}')">刪除</button>
+      </div>
+    </div>`).join('')
+    : '<div class="empty"><span class="em">🧾</span>還沒有帳單<br><span class="muted">誰先墊了錢就記一筆吧</span></div>';
+  // 總結（依幣別分組）
+  if(!t.bills.length){ $('billSummary').innerHTML='<span class="muted">還沒有帳單</span>'; return; }
+  const curs=[...new Set(t.bills.map(b=>b.cur))];
+  let html='';
+  curs.forEach(cur=>{
+    const paid={},share={};
+    t.members.forEach(m=>{paid[m]=0;share[m]=0;});
+    t.bills.filter(b=>b.cur===cur).forEach(b=>{
+      paid[b.payer]=(paid[b.payer]||0)+b.amount;
+      b.parts.forEach(p=>{ share[p]=(share[p]||0)+b.amount/b.parts.length; });
+    });
+    const total=t.bills.filter(b=>b.cur===cur).reduce((s,b)=>s+b.amount,0);
+    html+=`<div class="cl-cat">${cur}｜總支出 ${fmtMoney(cur,total)}</div>
+      <table class="fx-table"><tr style="color:var(--sub);font-size:.82rem"><td>成員</td><td style="text-align:right">已付</td><td style="text-align:right">應分攤</td><td style="text-align:right">差額</td></tr>`;
+    const bal={};
+    t.members.forEach(m=>{
+      const p=paid[m]||0,s=share[m]||0,d=p-s; bal[m]=d;
+      if(p===0&&s===0) return;
+      const col=d>0.005?'color:var(--teal-d)':d<-0.005?'color:var(--rose)':'';
+      html+=`<tr><td>${esc(m)}</td><td style="text-align:right">${fmtMoney(cur,p)}</td><td style="text-align:right">${fmtMoney(cur,s)}</td><td style="text-align:right;font-weight:700;${col}">${d>0?'+':''}${fmtMoney(cur,d)}</td></tr>`;
+    });
+    html+='</table>';
+    const moves=settle(bal);
+    if(moves.length){
+      html+='<div style="margin:10px 0 18px;background:#f2f4ec;border-radius:12px;padding:12px 16px">'
+        +'<div style="font-weight:700;color:var(--teal-d);margin-bottom:6px">💸 結算建議（最少轉帳）</div>'
+        +moves.map(([from,to,v])=>`<div style="padding:3px 0">${esc(from)} → ${esc(to)}：<b>${cur} ${fmtMoney(cur,v)}</b></div>`).join('')
+        +'</div>';
+    }else{
+      html+='<div class="muted" style="margin:8px 0 18px">✅ 這個幣別已結清</div>';
+    }
+  });
+  $('billSummary').innerHTML=html;
+}
+
 /* ================= 主題色 ================= */
 const DEFAULT_COLOR='#7c9082';
 const PALETTE=[ // 文青莫蘭迪色票
@@ -1825,7 +2008,7 @@ function resetAll(){
 }
 
 /* ================= init ================= */
-function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderCloudBtn(); tick();
+function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderBillTab(); renderCloudBtn(); tick();
   $('fxCur').value=T().trip.currency||'JPY'; if(rates) fxChanged(); }
 (function init(){
   $('fxCur').innerHTML = CURRENCIES.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('');
