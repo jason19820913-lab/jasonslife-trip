@@ -299,6 +299,8 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       </div>
       <div class="muted" id="countSub">請先到「旅程設定」選擇出發時間</div>
     </div>
+    <div class="card" id="todayCard" style="display:none"></div>
+    <div class="card" id="weatherCard" style="display:none"></div>
     <div class="stat-row">
       <div class="stat"><b id="stDays">-</b><span>旅程天數</span></div>
       <div class="stat"><b id="stSpots">0</b><span>行程項目</span></div>
@@ -493,7 +495,10 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <div class="field"><label>金額 *</label><input id="bAmount" type="number" min="0" step="any" placeholder="0"></div>
       <div class="field"><label>幣別</label><select id="bCur"></select></div>
     </div>
-    <div class="field"><label>誰付的錢</label><select id="bPayer"></select></div>
+    <div class="frow">
+      <div class="field"><label>分類</label><select id="bCatg"></select></div>
+      <div class="field"><label>誰付的錢</label><select id="bPayer"></select></div>
+    </div>
     <div class="field"><label>分攤成員（點選切換，預設全員均分）</label>
       <div class="day-chips" id="bParts" style="flex-wrap:wrap;overflow:visible"></div>
     </div>
@@ -705,6 +710,93 @@ function tick(){
 }
 setInterval(tick,1000);
 
+/* ================= 旅程中模式：今日行程 & 天氣 ================= */
+function tripDayNow(){
+  const tr=T().trip;
+  if(!tr.start||!tr.end) return 0;
+  const now=new Date(), s=new Date(tr.start.slice(0,10)), e=new Date(tr.end+'T23:59:59');
+  if(now<s||now>e) return 0;
+  return Math.floor((now-s)/86400000)+1;
+}
+function renderToday(){
+  const el=$('todayCard'); if(!el) return;
+  const dnum=tripDayNow();
+  const items=dnum? T().items.filter(x=>x.day===dnum):[];
+  if(!items.length){ el.style.display='none'; return; }
+  const hh=new Date().toTimeString().slice(0,5);
+  const nextIdx=items.findIndex(x=>x.time&&x.time>=hh);
+  el.style.display='block';
+  el.innerHTML=`<h2><span class="dot"></span>📍 今天（Day ${dnum}）的行程</h2>`+
+    items.map((x,i)=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line)">
+        <b style="color:var(--teal-d);min-width:52px;font-variant-numeric:tabular-nums">${esc(x.time||'--:--')}</b>
+        <span style="flex:1;${i===nextIdx?'font-weight:700':''}">${i===nextIdx?'👉 ':''}${esc(String(x.title||'').split('（')[0])}</span>
+        ${(x.loc||x.lat)?`<button class="mini nav-btn" onclick="navTo('${x.id}')">🧭 導航</button>`:''}
+      </div>`).join('')+
+    `<div class="share-row" style="margin-top:12px">
+       <button class="btn btn-p" onclick="mapToday(${dnum})">🗺 在地圖看今天</button>
+       <button class="btn btn-ghost" onclick="curDay=${dnum};renderPlan();switchTab('plan')">看完整行程</button>
+     </div>`;
+}
+function mapToday(dd){
+  const pts=T().items.filter(x=>x.day===dd)
+    .map(x=>(x.lat&&x.lon)? x.lat+','+x.lon : (x.loc||String(x.title||'').split('（')[0])).filter(Boolean);
+  if(pts.length<2){ toast('今天的行程至少要有兩個地點才能看路線'); return; }
+  const o=encodeURIComponent(pts[0]), d2=encodeURIComponent(pts[pts.length-1]);
+  const wps=pts.slice(1,-1).slice(0,9).map(encodeURIComponent).join('%7C');
+  window.open(`https://www.google.com/maps/dir/?api=1&travelmode=transit&origin=${o}&destination=${d2}${wps?'&waypoints='+wps:''}`,'_blank');
+}
+/* 天氣預報（Open-Meteo，免費免金鑰） */
+const WCODE={0:'☀️',1:'🌤',2:'⛅',3:'☁️',45:'🌫',48:'🌫',51:'🌦',53:'🌦',55:'🌧',56:'🌧',57:'🌧',61:'🌦',63:'🌧',65:'🌧',66:'🌧',67:'🌧',71:'🌨',73:'🌨',75:'❄️',77:'🌨',80:'🌦',81:'🌧',82:'⛈',85:'🌨',86:'❄️',95:'⛈',96:'⛈',99:'⛈'};
+async function renderWeather(){
+  const el=$('weatherCard'); if(!el) return;
+  const tr=T().trip;
+  if(!tr.start){ el.style.display='none'; return; }
+  let lat='',lon='',label=(tr.dest||'').trim();
+  const withC=T().items.find(x=>x.lat&&x.lon);
+  if(withC){ lat=withC.lat; lon=withC.lon; }
+  const ck='wx_'+(lat||label)+'_'+tr.start.slice(0,10);
+  if(el.dataset.key===ck&&el.style.display!=='none') return; // 已渲染，避免重複請求
+  try{
+    let data=null;
+    try{ const c=JSON.parse(sessionStorage.getItem(ck)||'null'); if(c&&Date.now()-c.t<30*60*1000) data=c.d; }catch(e){}
+    if(!data){
+      if(!lat){
+        if(!label){ el.style.display='none'; return; }
+        const g=await (await fetch('https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&name='+encodeURIComponent(label.replace(/[・.｜|]/g,' ')))).json();
+        if(!(g.results&&g.results[0])){ el.style.display='none'; return; }
+        lat=g.results[0].latitude; lon=g.results[0].longitude;
+      }
+      const r=await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=16`)).json();
+      data=r.daily;
+      if(!data){ el.style.display='none'; return; }
+      try{ sessionStorage.setItem(ck,JSON.stringify({t:Date.now(),d:data})); }catch(e){}
+    }
+    const s=tr.start.slice(0,10), e2=tr.end||s;
+    let idxs=data.time.map((d3,i)=>({d:d3,i})).filter(o=>o.d>=s&&o.d<=e2).slice(0,10);
+    el.dataset.key=ck;
+    if(!idxs.length){
+      if(new Date(s)>new Date(data.time[data.time.length-1])){
+        el.style.display='block';
+        el.innerHTML=`<h2><span class="dot"></span>🌤 目的地天氣</h2><div class="muted">出發日還在 16 天預報範圍之外，出發前兩週再回來看就有囉</div>`;
+      }else el.style.display='none';
+      return;
+    }
+    const rainy=idxs.some(o=>(data.precipitation_probability_max[o.i]||0)>=50);
+    el.style.display='block';
+    el.innerHTML=`<h2><span class="dot"></span>🌤 ${esc(label||'目的地')} 旅程天氣預報</h2>
+      <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">`+
+      idxs.map(o=>{const i=o.i, dt=new Date(o.d+'T00:00');
+        return `<div style="min-width:76px;text-align:center;background:#f4f1e8;border-radius:12px;padding:10px 6px;flex-shrink:0">
+          <div class="muted" style="font-size:.78rem">${dt.getMonth()+1}/${dt.getDate()}</div>
+          <div style="font-size:1.5rem;margin:2px 0">${WCODE[data.weather_code[i]]||'🌡'}</div>
+          <div style="font-size:.86rem"><b>${Math.round(data.temperature_2m_max[i])}°</b> <span class="muted">${Math.round(data.temperature_2m_min[i])}°</span></div>
+          <div class="muted" style="font-size:.72rem">💧${data.precipitation_probability_max[i]||0}%</div>
+        </div>`;}).join('')+
+      `</div>${rainy?'<div class="muted" style="margin-top:8px">☔ 旅程期間降雨機率偏高，記得到清單勾「雨具 / 防曬」！</div>':''}`;
+  }catch(e){ el.style.display='none'; }
+}
+
 /* ================= 多行程管理 ================= */
 function openTrips(){ renderTrips(); $('tripsModal').classList.add('open'); }
 function renderTrips(){
@@ -781,6 +873,7 @@ function renderPlan(){
         ${(kindOf(x)==='food'&&!x.flight)?`<button class="mini reserve-btn" onclick="reserveGo('${x.id}')">🍽️ 餐廳訂位</button>`:''}
         ${(KKDAY_CID&&kindOf(x)==='spot'&&!x.flight)?`<button class="mini kkday-btn" onclick="kkdayGo('${x.id}')">🎫 KKday 門票</button>`:''}
         ${x.blogUrl?`<button class="mini blog-btn" onclick="window.open('${esc(x.blogUrl)}','_blank')">📖 看遊記</button>`:''}
+        <button class="mini" onclick="copyItem('${x.id}')">⧉ 複製</button>
         <button class="mini" onclick="openItem('${x.id}')">編輯</button>
         <button class="mini del" onclick="delItem('${x.id}')">刪除</button>
       </div>
@@ -1405,6 +1498,21 @@ function delItem(id){
   T().items=T().items.filter(i=>i.id!==id);
   save(); renderPlan(); renderStats();
 }
+function copyItem(id){ // 複製行程項目：開新增視窗預填全部內容，選好天數儲存即可
+  const x=T().items.find(i=>i.id===id); if(!x) return;
+  openItem();
+  $('fDay').value=x.day; $('fTime').value=x.time||'09:00';
+  $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||'';
+  $('fTransit').value=x.transit||''; $('fFlight').value=x.flight||'';
+  $('fDep').value=x.dep||''; $('fArr').value=x.arr||''; $('fNote').value=x.note||'';
+  _geoPicked=(x.lat&&x.lon)?{lat:x.lat,lon:x.lon}:null;
+  _geoKind=x.kind||''; _geoPhoto=x.photo||''; _flightInfo=x.flightInfo||'';
+  _attachments=[...(x.files||[])]; renderAttachments();
+  if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
+    $('blogField').style.display='block'; $('blogChipText').textContent=_blogPicked.title; }
+  $('itemModalTitle').textContent='複製行程（選擇天數後儲存）';
+  toast('已帶入複本內容，選好天數按儲存 ⧉');
+}
 
 /* ================= 匯率 ================= */
 let rates=null, ratesTime='';
@@ -1492,6 +1600,8 @@ function resetChecklist(){
 
 /* ================= 記帳分帳 ================= */
 function B(){ const t=T(); t.members=t.members||[]; t.bills=t.bills||[]; return t; }
+const BILL_CATS=[['餐飲','🍜'],['交通','🚇'],['門票','🎫'],['購物','🛍'],['住宿','🏨'],['其他','📦']];
+function catIco(c){ const f=BILL_CATS.find(x=>x[0]===c); return f?f[1]:'📦'; }
 const ZERO_DEC=['JPY','KRW','TWD','VND','IDR']; // 無小數幣別
 function fmtMoney(cur,v){
   const dec=ZERO_DEC.includes(cur)?0:2;
@@ -1521,17 +1631,20 @@ function openBill(id){
   const seen=new Set(), opts=[];
   curs.forEach(c=>{ if(!seen.has(c[0])){ seen.add(c[0]); opts.push(c[0]); } });
   $('bCur').innerHTML=opts.map(c=>`<option>${c}</option>`).join('');
+  $('bCatg').innerHTML=BILL_CATS.map(c=>`<option value="${c[0]}">${c[1]} ${c[0]}</option>`).join('');
   $('bPayer').innerHTML=t.members.map(m=>`<option>${esc(m)}</option>`).join('');
   if(id){
     const b=t.bills.find(x=>x.id===id);
     $('billModalTitle').textContent='編輯帳單';
     $('bTitle').value=b.title; $('bAmount').value=b.amount;
     $('bCur').value=b.cur; $('bPayer').value=b.payer;
+    $('bCatg').value=b.catg||'其他';
     _billParts=[...(b.parts||[])];
   }else{
     $('billModalTitle').textContent='新增帳單';
     $('bTitle').value=''; $('bAmount').value='';
     $('bCur').value=T().trip.currency||'JPY';
+    $('bCatg').value='餐飲';
     _billParts=[...t.members]; // 預設全員均分
   }
   renderBillParts();
@@ -1550,7 +1663,7 @@ function saveBill(){
   if(!title){ toast('請輸入項目名稱'); return; }
   if(!(amount>0)){ toast('請輸入正確金額'); return; }
   if(!_billParts.length){ toast('至少選一位分攤成員'); return; }
-  const data={title,amount,cur:$('bCur').value,payer:$('bPayer').value,parts:[..._billParts]};
+  const data={title,amount,cur:$('bCur').value,catg:$('bCatg').value,payer:$('bPayer').value,parts:[..._billParts]};
   const t=B();
   if(editingBill){ Object.assign(t.bills.find(b=>b.id===editingBill),data); }
   else{ t.bills.push({id:uid(),ts:Date.now(),...data}); }
@@ -1587,7 +1700,7 @@ function renderBillTab(){
   $('billList').innerHTML=t.bills.length? t.bills.map(b=>`
     <div class="it-item">
       <div class="it-body">
-        <div class="it-title">${esc(b.title)}　<span style="color:var(--teal-d)">${b.cur} ${fmtMoney(b.cur,b.amount)}</span></div>
+        <div class="it-title">${catIco(b.catg)} ${esc(b.title)}　<span style="color:var(--teal-d)">${b.cur} ${fmtMoney(b.cur,b.amount)}</span></div>
         <div class="it-loc">💳 ${esc(b.payer)} 先付 ・ ${b.parts.length} 人分攤（${b.parts.map(esc).join('、')}）・ 每人 ${b.cur} ${fmtMoney(b.cur,b.amount/b.parts.length)}</div>
       </div>
       <div class="it-acts">
@@ -1618,6 +1731,11 @@ function renderBillTab(){
       html+=`<tr><td>${esc(m)}</td><td style="text-align:right">${fmtMoney(cur,p)}</td><td style="text-align:right">${fmtMoney(cur,s)}</td><td style="text-align:right;font-weight:700;${col}">${d>0?'+':''}${fmtMoney(cur,d)}</td></tr>`;
     });
     html+='</table>';
+    // 分類小計
+    const catSum={};
+    t.bills.filter(b=>b.cur===cur).forEach(b=>{ const c=b.catg||'其他'; catSum[c]=(catSum[c]||0)+b.amount; });
+    const catLine=BILL_CATS.filter(c=>catSum[c[0]]).map(c=>`${c[1]}${c[0]} ${fmtMoney(cur,catSum[c[0]])}`).join('　');
+    if(catLine) html+=`<div class="muted" style="margin:6px 0 4px;font-size:.85rem">分類小計：${catLine}</div>`;
     const moves=settle(bal);
     if(moves.length){
       html+='<div style="margin:10px 0 18px;background:#f2f4ec;border-radius:12px;padding:12px 16px">'
@@ -1700,12 +1818,21 @@ let syncTimer=null, syncing=false, lastSyncText='', _pendingSave=false, _dirty=f
 function cloudPayload(){ return JSON.stringify({trips:state.trips, activeId:state.activeId}); }
 function localMaxUpdated(){ return Math.max(0,...state.trips.map(t=>t.updatedAt||0)); }
 async function api(action, params){
-  const res=await fetch(API_URL,{
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'}, // text/plain 避免 CORS preflight
-    body:JSON.stringify({action,...params})
-  });
-  return res.json();
+  // GAS 冷啟動偶爾要幾秒，超過 2.5 秒給提示避免以為壞掉（每次瀏覽只提示一次）
+  const slow=setTimeout(()=>{
+    if(!sessionStorage.getItem('coldHinted')){
+      toast('☁️ 雲端服務喚醒中，請稍候幾秒…');
+      try{ sessionStorage.setItem('coldHinted','1'); }catch(e){}
+    }
+  },2500);
+  try{
+    const res=await fetch(API_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'}, // text/plain 避免 CORS preflight
+      body:JSON.stringify({action,...params})
+    });
+    return await res.json();
+  }finally{ clearTimeout(slow); }
 }
 function renderCloudBtn(){
   $('cloudBtn').textContent = state.account? '☁️ '+state.account.user : '☁️ 未登入';
@@ -2519,7 +2646,7 @@ function resetAll(){
 }
 
 /* ================= init ================= */
-function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderBillTab(); renderCloudBtn(); tick();
+function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderBillTab(); renderCloudBtn(); renderToday(); renderWeather(); tick();
   $('fxCur').value=T().trip.currency||'JPY'; if(rates) fxChanged(); }
 (function init(){
   $('fxCur').innerHTML = CURRENCIES.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('');
@@ -2533,6 +2660,19 @@ function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats();
   loadRates();
   renderTemplates();   // 範本市集
   handleShareTarget(); // Android PWA 分享帶入
+  setInterval(renderToday,60000); // 今日行程「下一站」每分鐘更新
+  if('serviceWorker' in navigator&&location.protocol==='https:'){ // 離線支援
+    try{ navigator.serviceWorker.register('./sw.js'); }catch(e){}
+  }
+  setTimeout(()=>{ // 定期備份小提醒（每 14 天一次）
+    try{
+      const k='tripcanvas_backup_ts', last=+localStorage.getItem(k)||0;
+      if(state.trips.some(t=>t.items.length)&&Date.now()-last>14*86400000){
+        toast('💾 小提醒：可到首頁「匯出備份」保存一份行程檔');
+        localStorage.setItem(k,String(Date.now()));
+      }
+    }catch(e){}
+  },4000);
   if(API_URL&&state.account) cloudLoad(); // 開啟頁面時自動拉最新雲端資料
   if(API_URL){ // 自動雙向同步：每 45 秒 + 回到分頁時檢查（帳號雲端 + 協作旅程）
     setInterval(()=>{ cloudPoll(); collabPoll(); },45000);
