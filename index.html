@@ -2234,24 +2234,37 @@ function photoUrl(name,w){
 /* AI 繪本插畫：依實際行程地點客製生成（快取避免重複耗時） */
 let _artCache={key:'',cover:'',bg:''};
 function artKey(t){ return (t.trip.dest||'')+'|'+(t.trip.name||'')+'|'+t.items.map(x=>x.title).join(','); }
+function preloadImg(url,ms){
+  return new Promise(res=>{
+    const im=new Image(); let done=false;
+    const tm=setTimeout(()=>{ if(!done){done=true;res(false);} },ms||75000);
+    im.onload=()=>{ if(!done){done=true;clearTimeout(tm);res(true);} };
+    im.onerror=()=>{ if(!done){done=true;clearTimeout(tm);res(false);} };
+    im.src=url;
+  });
+}
 async function genTripArt(t){
   const key=artKey(t);
-  if(!API_URL){ _artCache={key,cover:'',bg:''}; return _artCache; }
   if(_artCache.key===key&&(_artCache.cover||_artCache.bg)) return _artCache;
-  const places=[...new Set(t.items.map(x=>String(x.title||'').split('（')[0].trim()).filter(Boolean))].slice(0,10).join('、')||'當地著名景點';
-  const dest=t.trip.dest||t.trip.name||'旅行';
-  toast('🎨 AI 正在依你的行程繪製專屬插畫（約 20〜40 秒）…');
-  let cover='',bg='';
-  try{
-    const r=await api('aiImage',{prompt:`彩色鉛筆與蠟筆手繪風格的可愛旅遊繪本封面插畫，溫暖童趣、線條放鬆、色彩明亮飽和，類似兒童繪本。主題：${dest}之旅。畫面組合出以下真實地點的代表性場景與元素（這是實際行程）：${places}。前景是一位可愛短髮旅行女孩與一隻圓滾滾的動物吉祥物開心揮手，背景是上述地標組成的風景。天空明亮有雲。整張圖絕對不要出現任何文字、字母、數字或招牌文字。直式構圖。`});
-    if(r&&r.image) cover='data:'+(r.mime||'image/png')+';base64,'+r.image;
-  }catch(e){}
-  try{
-    const r2=await api('aiImage',{prompt:`白色背景上均勻散佈的彩色鉛筆手繪小塗鴉，像可愛貼紙集：與「${dest}」及這些地點相關的代表元素（${places}），加上當地特色食物、交通工具、行李箱、相機、指南針等旅行小物。每個塗鴉獨立、不重疊、周圍留白多。絕對不要出現任何文字、字母或數字。`});
-    if(r2&&r2.image) bg='data:'+(r2.mime||'image/png')+';base64,'+r2.image;
-  }catch(e){}
-  _artCache={key,cover,bg};
-  if(!cover&&!bg) toast('插畫生成未成功，將使用簡約版面');
+  const placesZh=[...new Set(t.items.map(x=>String(x.title||'').split('（')[0].trim()).filter(Boolean))].slice(0,8);
+  const dest=t.trip.dest||t.trip.name||'travel';
+  toast('🎨 AI 正在依你的行程繪製專屬插畫（約 30〜60 秒）…');
+  // 先用免費文字 AI 把目的地與景點翻成英文，生圖構圖更精準；失敗就用原文
+  let places=dest+', '+placesZh.join(', ');
+  if(aiOn()&&placesZh.length){
+    try{
+      const tr=await gemini(`把以下旅遊目的地與景點名稱翻譯成英文，用逗號分隔，只回覆翻譯結果不要其他文字：${dest}：${placesZh.join('、')}`);
+      if(tr&&tr.length>3&&tr.length<400) places=tr.replace(/\n/g,' ').replace(/["']/g,'');
+    }catch(e){}
+  }
+  const seed=Math.abs([...key].reduce((a,c)=>(a*31+c.charCodeAt(0))|0,7))%99999;
+  const coverPrompt=`cute children's picture book illustration, colored pencil and crayon hand-drawn style, warm and playful, a cute short-haired traveler girl and a round animal mascot waving happily in the foreground, travel scene combining famous landmarks of ${places}, bright sky with clouds, rich lovely details, no text, no letters, no words, no signs`;
+  const bgPrompt=`sticker sheet of small cute doodles on pure white background, colored pencil hand-drawn style, travel elements and famous landmarks of ${places}, local food, transport, luggage, camera, compass, evenly scattered with lots of white space between doodles, no text, no letters, no words`;
+  const cover='https://image.pollinations.ai/prompt/'+encodeURIComponent(coverPrompt)+`?width=832&height=1152&nologo=true&enhance=true&seed=${seed}`;
+  const bg='https://image.pollinations.ai/prompt/'+encodeURIComponent(bgPrompt)+`?width=896&height=1152&nologo=true&enhance=true&seed=${seed+1}`;
+  const [okC,okB]=await Promise.all([preloadImg(cover),preloadImg(bg)]);
+  _artCache={key,cover:okC?cover:'',bg:okB?bg:''};
+  if(!okC&&!okB) toast('插畫生成逾時，改用簡約版面（可再試一次）');
   return _artCache;
 }
 async function exportPDF(){
