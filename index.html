@@ -210,6 +210,18 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   .bk-time{width:13mm;flex-shrink:0;font-weight:700;color:var(--teal-d);font-size:11pt;font-variant-numeric:tabular-nums;padding-top:0.5mm}
   .bk-body{flex:1;border-bottom:0.35mm dashed #ddd4c0;padding-bottom:4mm;overflow:hidden}
   .bk-photo{float:right;width:44mm;max-height:33mm;object-fit:cover;border-radius:2.5mm;margin:0 0 2.5mm 4mm;border:0.35mm solid #ddd4c0}
+  @font-face{font-family:'huninn';src:url('https://cdn.jsdelivr.net/gh/justfont/open-huninn-font@master/font/jf-openhuninn-2.0.ttf') format('truetype');font-display:swap}
+  .bk-cute{background:#fdfaf2;border:0.6mm solid #e8ddc6;border-radius:3.5mm;padding:20mm 11mm 0;overflow:hidden;font-family:'huninn','Noto Sans TC',sans-serif}
+  .bk-tape{position:absolute;top:7mm;left:50%;transform:translateX(-50%) rotate(-1.6deg);background:repeating-linear-gradient(45deg,rgba(124,144,130,.28) 0 3mm,rgba(124,144,130,.16) 3mm 6mm),#f6f0df;border:0.3mm solid rgba(120,110,80,.25);border-radius:1.5mm;padding:2.4mm 10mm;font-size:15pt;font-weight:700;color:#4a463c;letter-spacing:0.8mm;box-shadow:0.4mm 0.6mm 0 rgba(120,100,60,.12)}
+  .bk-tape small{font-size:10.5pt;color:#8c8779;font-weight:400;margin-left:3mm}
+  .bk-cutelist{position:relative;z-index:2}
+  .bk-crow{display:flex;align-items:baseline;gap:3.5mm;padding:2.2mm 0;border-bottom:0.3mm dashed #ddd0b4}
+  .bk-crow:last-child{border-bottom:none}
+  .bk-cico{font-size:11pt}
+  .bk-ctime{font-size:10.5pt;font-weight:700;color:#5c7263;background:#eef1e4;border-radius:99px;padding:0.6mm 3mm;flex-shrink:0}
+  .bk-ctitle{font-size:12pt;color:#3f3c34;font-weight:700}
+  .bk-csub{font-size:8.5pt;color:#8c8779;margin-left:auto;text-align:right;max-width:52mm}
+  .bk-dayart{position:absolute;left:0;right:0;bottom:0;width:100%;height:78mm;object-fit:cover;z-index:1;-webkit-mask-image:linear-gradient(to bottom,transparent 0,black 14mm);mask-image:linear-gradient(to bottom,transparent 0,black 14mm)}
   .bk-hero{margin-top:9mm}
   .bk-hero svg{width:96mm;height:auto}
   /* AI 繪本封面 */
@@ -2246,25 +2258,42 @@ function preloadImg(url,ms){
 async function genTripArt(t){
   const key=artKey(t);
   if(_artCache.key===key&&(_artCache.cover||_artCache.bg)) return _artCache;
+  const days=Math.max(tripDays(),1);
   const placesZh=[...new Set(t.items.map(x=>String(x.title||'').split('（')[0].trim()).filter(Boolean))].slice(0,8);
   const dest=t.trip.dest||t.trip.name||'travel';
-  toast('🎨 AI 正在依你的行程繪製專屬插畫（約 30〜60 秒）…');
-  // 先用免費文字 AI 把目的地與景點翻成英文，生圖構圖更精準；失敗就用原文
-  let places=dest+', '+placesZh.join(', ');
-  if(aiOn()&&placesZh.length){
+  const dayItems={};
+  for(let dd=1;dd<=days;dd++){
+    const its=t.items.filter(x=>x.day===dd).map(x=>String(x.title||'').split('（')[0].trim()).filter(Boolean);
+    if(its.length) dayItems[dd]=its.slice(0,6);
+  }
+  const nImgs=2+Object.keys(dayItems).length;
+  toast(`🎨 AI 正在依你的行程繪製 ${nImgs} 張專屬插畫（約 1〜2 分鐘）…`);
+  // 用免費文字 AI 一次翻譯全部（目的地 + 各日行程），構圖更精準
+  let en={dest:dest,days:{}};
+  if(aiOn()){
     try{
-      const tr=await gemini(`把以下旅遊目的地與景點名稱翻譯成英文，用逗號分隔，只回覆翻譯結果不要其他文字：${dest}：${placesZh.join('、')}`);
-      if(tr&&tr.length>3&&tr.length<400) places=tr.replace(/\n/g,' ').replace(/["']/g,'');
+      const q=`把以下旅遊資訊翻譯成英文。只回覆JSON，格式 {"dest":"...","days":{"1":"...逗號分隔的當日地點...",...}}：目的地：${dest}。各日行程：${Object.entries(dayItems).map(([d,its])=>`第${d}天：${its.join('、')}`).join('；')}`;
+      const j=JSON.parse(await gemini(q));
+      if(j&&j.dest) en={dest:String(j.dest).substring(0,80),days:j.days||{}};
     }catch(e){}
   }
   const seed=Math.abs([...key].reduce((a,c)=>(a*31+c.charCodeAt(0))|0,7))%99999;
-  const coverPrompt=`cute children's picture book illustration, colored pencil and crayon hand-drawn style, warm and playful, a cute short-haired traveler girl and a round animal mascot waving happily in the foreground, travel scene combining famous landmarks of ${places}, bright sky with clouds, rich lovely details, no text, no letters, no words, no signs`;
-  const bgPrompt=`sticker sheet of small cute doodles on pure white background, colored pencil hand-drawn style, travel elements and famous landmarks of ${places}, local food, transport, luggage, camera, compass, evenly scattered with lots of white space between doodles, no text, no letters, no words`;
-  const cover='https://image.pollinations.ai/prompt/'+encodeURIComponent(coverPrompt)+`?width=832&height=1152&nologo=true&enhance=true&seed=${seed}`;
-  const bg='https://image.pollinations.ai/prompt/'+encodeURIComponent(bgPrompt)+`?width=896&height=1152&nologo=true&enhance=true&seed=${seed+1}`;
-  const [okC,okB]=await Promise.all([preloadImg(cover),preloadImg(bg)]);
-  _artCache={key,cover:okC?cover:'',bg:okB?bg:''};
-  if(!okC&&!okB) toast('插畫生成逾時，改用簡約版面（可再試一次）');
+  const style="warm watercolor and colored pencil children's picture book illustration, cute chibi short-haired traveler girl and a round white seagull mascot, soft pastel colors, dreamy lovely details, no text, no letters, no words, no signs";
+  const poll=(pr,w,h,sd)=>'https://image.pollinations.ai/prompt/'+encodeURIComponent(pr)+`?width=${w}&height=${h}&nologo=true&enhance=true&seed=${sd}`;
+  const cover=poll(`${style}, book cover scene combining famous landmarks of ${en.dest}${placesZh.length?', '+(en.days[1]||''):''}, girl and mascot waving happily in foreground, bright sky`,832,1152,seed);
+  const bg=poll(`sticker sheet of small cute doodles on pure white background, colored pencil hand-drawn style, travel elements and landmarks of ${en.dest}, local food, transport, luggage, camera, evenly scattered with lots of white space, no text, no letters`,896,1152,seed+1);
+  const dayUrls={};
+  Object.keys(dayItems).forEach((dd,i)=>{
+    const acts=en.days[dd]||dayItems[dd].join(', ');
+    dayUrls[dd]=poll(`${style}, wide horizontal scene at the bottom of a travel journal page, girl and seagull mascot happily experiencing: ${acts}, in ${en.dest}, soft cream colored sky above fading to plain empty cream paper at top`,1024,560,seed+10+i);
+  });
+  // 並行預載（封面+塗鴉+各日）
+  const tasks=[preloadImg(cover),preloadImg(bg),...Object.values(dayUrls).map(u=>preloadImg(u))];
+  const results=await Promise.all(tasks);
+  const daysOk={};
+  Object.keys(dayUrls).forEach((dd,i)=>{ if(results[2+i]) daysOk[dd]=dayUrls[dd]; });
+  _artCache={key,cover:results[0]?cover:'',bg:results[1]?bg:'',days:daysOk};
+  if(!results[0]&&!results[1]) toast('插畫生成逾時，改用簡約版面（可再試一次）');
   return _artCache;
 }
 async function exportPDF(){
@@ -2297,27 +2326,26 @@ async function exportPDF(){
       <div class="bk-byline">旅圖 TRIPCANVAS ・ JASON'S LIFE</div>
     </div></div></div>`;
   }
-  // 逐日行程（AI 塗鴉當淡色背景水印）
+  // 逐日行程：繪本頁（紙膠帶標題 + 行程列表 + 當日 AI 場景圖）
+  const kindIco=x=> x.flight?'✈️' : kindOf(x)==='hotel'?'🏨' : kindOf(x)==='food'?'🍜' : '📍';
   for(let dd=1;dd<=days;dd++){
     const items=t.items.filter(x=>x.day===dd);
     if(!items.length) continue;
-    html+=`<div class="bk-page">${bgTag}<div class="bk-content"><div class="bk-dayhead"><span class="bk-daynum">Day ${dd}</span><span class="bk-daydate">${esc((dayLabel(dd).split('・')[1]||''))}</span></div>`;
-    html+=items.map(x=>`
-      <div class="bk-item">
-        <div class="bk-time">${esc(x.time||'--:--')}</div>
-        <div class="bk-body">
-          ${(x.photo&&GOOGLE_KEY)?`<img class="bk-photo" src="${photoUrl(x.photo,700)}" onerror="this.remove()">`:''}
-          <div class="bk-title">${esc(x.title)}</div>
-          ${x.loc?`<div class="bk-meta">📍 ${esc(x.loc)}</div>`:''}
-          ${x.phone?`<div class="bk-meta">📞 ${esc(x.phone)}</div>`:''}
-          ${x.flight?`<div class="bk-meta">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}${x.arr?' → 🛬 '+esc(x.arr):''}`:''}</div>`:''}
-          ${x.transit?`<div class="bk-transit">🚇 ${esc(x.transit)}</div>`:''}
-          ${x.blogUrl?`<div class="bk-meta">📖 遊記：${esc(x.blogTitle||x.blogUrl)}</div>`:''}
-          ${(x.files&&x.files.length)?`<div class="bk-meta">📎 附件：${x.files.map(f=>esc(f.name)).join('、')}</div>`:''}
-          ${x.note?`<div class="bk-note">${esc(x.note)}</div>`:''}
-        </div>
-      </div>`).join('');
-    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div></div>`;
+    const dayArt=(art.days||{})[dd]||'';
+    html+=`<div class="bk-page bk-cute">
+      <div class="bk-tape">Day ${dd}<small>${esc((dayLabel(dd).split('・')[1]||''))}</small></div>
+      ${!dayArt&&art.bg?`<img class="bk-bgart" src="${art.bg}">`:''}
+      <div class="bk-cutelist" style="padding-bottom:${dayArt?'82mm':'8mm'}">`+
+      items.map(x=>`
+        <div class="bk-crow">
+          <span class="bk-cico">${kindIco(x)}</span>
+          <span class="bk-ctime">${esc(x.time||'--:--')}</span>
+          <span class="bk-ctitle">${esc(String(x.title||'').split('（')[0])}</span>
+          <span class="bk-csub">${x.transit?esc(x.transit):x.flight?esc(x.flight)+(x.dep?'｜'+esc(x.dep)+(x.arr?'→'+esc(x.arr):''):''):x.loc?esc(String(x.loc).split(',')[0].substring(0,22)):''}</span>
+        </div>`).join('')+
+      `</div>
+      ${dayArt?`<img class="bk-dayart" src="${dayArt}">`:''}
+    </div>`;
   }
   // 記帳總結
   if(t.bills.length){
@@ -2360,7 +2388,8 @@ async function exportPDF(){
   }
   $('printBook').innerHTML=html;
   toast('🖨 列印視窗請選「另存為 PDF」，並開啟「背景圖形」讓色彩完整');
-  setTimeout(()=>window.print(),800); // 稍候讓照片開始載入
+  try{ await document.fonts.ready; }catch(e){}
+  setTimeout(()=>window.print(),800); // 稍候讓圖片就緒
 }
 
 /* ================= 分享（共同編輯）/ 匯出入 ================= */
