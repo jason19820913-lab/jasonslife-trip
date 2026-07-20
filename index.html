@@ -2270,12 +2270,10 @@ async function genTripArt(t){
   }
   const seed=Math.abs([...key].reduce((a,c)=>(a*31+c.charCodeAt(0))|0,7))%99999;
   const coverPrompt=`cute children's picture book illustration, colored pencil and crayon hand-drawn style, warm and playful, a cute short-haired traveler girl and a round white seagull mascot waving happily in the foreground, travel scene combining famous landmarks of ${places}, bright sky with clouds, rich lovely details, no text, no letters, no words, no signs`;
-  const bgPrompt=`sticker sheet of small cute doodles on pure white background, colored pencil hand-drawn style, travel elements and famous landmarks of ${places}, local food, transport, luggage, camera, compass, evenly scattered with lots of white space between doodles, no text, no letters, no words`;
   const cover='https://image.pollinations.ai/prompt/'+encodeURIComponent(coverPrompt)+`?width=832&height=1152&nologo=true&enhance=true&seed=${seed}`;
-  const bg='https://image.pollinations.ai/prompt/'+encodeURIComponent(bgPrompt)+`?width=896&height=1152&nologo=true&enhance=true&seed=${seed+1}`;
-  const [okC,okB]=await Promise.all([preloadImg(cover),preloadImg(bg)]);
-  _artCache={key,cover:okC?cover:'',bg:okB?bg:''};
-  if(!okC&&!okB) toast('插畫生成逾時，改用簡約版面（可再試一次）');
+  const okC=await preloadImg(cover);
+  _artCache={key,cover:okC?cover:'',bg:''};
+  if(!okC) toast('封面插畫生成逾時，改用簡約封面（可再試一次）');
   return _artCache;
 }
 async function exportPDF(){
@@ -2284,7 +2282,6 @@ async function exportPDF(){
   const dates=t.trip.start? t.trip.start.slice(0,10).replaceAll('-','/')+(t.trip.end?' — '+t.trip.end.replaceAll('-','/'):''):'';
   const set=ILLOS[destSet()], theme=t.trip.color||'#7c9082';
   const art=await genTripArt(t);
-  const bgTag=art.bg?`<img class="bk-bgart" src="${art.bg}">`:'';
   let html='';
   // 封面：AI 繪本大圖（失敗時退回簡約插畫封面）
   if(art.cover){
@@ -2312,7 +2309,7 @@ async function exportPDF(){
   for(let dd=1;dd<=days;dd++){
     const items=t.items.filter(x=>x.day===dd);
     if(!items.length) continue;
-    html+=`<div class="bk-page">${bgTag}<div class="bk-content"><div class="bk-dayhead"><span class="bk-daynum">Day ${dd}</span><span class="bk-daydate">${esc((dayLabel(dd).split('・')[1]||''))}</span></div>`;
+    html+=`<div class="bk-page"><div class="bk-content"><div class="bk-dayhead"><span class="bk-daynum">Day ${dd}</span><span class="bk-daydate">${esc((dayLabel(dd).split('・')[1]||''))}</span></div>`;
     html+=items.map(x=>`
       <div class="bk-item">
         <div class="bk-time">${esc(x.time||'--:--')}</div>
@@ -2332,7 +2329,7 @@ async function exportPDF(){
   }
   // 記帳總結
   if(t.bills.length){
-    html+=`<div class="bk-page">${bgTag}<div class="bk-content"><div class="bk-h2">💰 費用總結與結算</div>`;
+    html+=`<div class="bk-page"><div class="bk-content"><div class="bk-h2">💰 費用總結與結算</div>`;
     [...new Set(t.bills.map(b=>b.cur))].forEach(cur=>{
       const paid={},share={},bal={};
       t.members.forEach(m=>{paid[m]=0;share[m]=0;});
@@ -2360,7 +2357,7 @@ async function exportPDF(){
   }
   // 行前清單
   if(t.checklist.length){
-    html+=`<div class="bk-page">${bgTag}<div class="bk-content"><div class="bk-h2">🎒 出發前準備清單</div>`;
+    html+=`<div class="bk-page"><div class="bk-content"><div class="bk-h2">🎒 出發前準備清單</div>`;
     CATS.forEach(cat=>{
       const its=t.checklist.filter(c=>c.cat===cat);
       if(!its.length) return;
