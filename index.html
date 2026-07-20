@@ -210,14 +210,22 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   .bk-time{width:13mm;flex-shrink:0;font-weight:700;color:var(--teal-d);font-size:11pt;font-variant-numeric:tabular-nums;padding-top:0.5mm}
   .bk-body{flex:1;border-bottom:0.35mm dashed #ddd4c0;padding-bottom:4mm;overflow:hidden}
   .bk-photo{float:right;width:44mm;max-height:33mm;object-fit:cover;border-radius:2.5mm;margin:0 0 2.5mm 4mm;border:0.35mm solid #ddd4c0}
-  .bk-illo{float:right;width:38mm;height:26mm;border-radius:2.5mm;margin:0 0 2.5mm 4mm;border:0.35mm dashed #cfc4ab;background:#f4f0e5;display:flex;align-items:center;justify-content:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .bk-illo svg{width:22mm;height:22mm}
   .bk-hero{margin-top:9mm}
   .bk-hero svg{width:96mm;height:auto}
-  .bk-daymotif{margin-left:auto;align-self:center}
-  .bk-daymotif svg{width:11mm;height:11mm;opacity:.85}
-  .bk-cornermotif{position:absolute;right:0;top:0}
-  .bk-cornermotif svg{width:12mm;height:12mm;opacity:.7}
+  /* AI 繪本封面 */
+  .bk-cover2{position:relative;height:268mm;border-radius:4mm;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .bk-coverart{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .bk-covercard{position:absolute;left:12mm;right:12mm;bottom:12mm;background:rgba(255,253,248,.92);border-radius:3.5mm;padding:7mm 6mm;text-align:center;border:0.5mm solid rgba(120,110,90,.25)}
+  .bk-covercard .bk-kicker2{letter-spacing:2mm;font-size:9.5pt;color:#8c8779}
+  .bk-covercard h1{font-family:'Noto Serif TC',serif;font-size:24pt;font-weight:900;color:#3f3c34;margin:2.5mm 0 1.5mm;letter-spacing:1mm}
+  .bk-covercard .bk-sub{font-size:11pt;color:#5c7263}
+  .bk-covercard .bk-dates2{font-size:9.5pt;color:#8c8779;margin-top:2mm}
+  .bk-covercard .bk-members2{margin-top:3mm}
+  .bk-covercard .bk-members2 span{display:inline-block;border:0.35mm solid #b9ab8d;border-radius:99px;padding:0.8mm 3.5mm;margin:0.8mm;font-size:8.5pt;color:#75705f}
+  /* 內頁淡色水印插畫 */
+  .bk-page{position:relative}
+  .bk-bgart{position:absolute;left:8mm;right:8mm;top:16mm;bottom:8mm;width:calc(100% - 16mm);height:auto;max-height:85%;object-fit:contain;opacity:.10;z-index:0;pointer-events:none}
+  .bk-content{position:relative;z-index:1}
   .bk-title{font-size:12.5pt;font-weight:700;margin-bottom:1.2mm}
   .bk-meta{font-size:9pt;color:#75705f;margin-top:0.8mm;line-height:1.45}
   .bk-transit{display:inline-block;font-size:9pt;color:var(--teal-d);border:0.35mm solid var(--teal);border-radius:99px;padding:0.8mm 3.5mm;margin-top:1.5mm}
@@ -2223,14 +2231,50 @@ const ILLOS={
 function photoUrl(name,w){
   return 'https://places.googleapis.com/v1/'+name+'/media?maxWidthPx='+(w||700)+'&key='+encodeURIComponent(GOOGLE_KEY);
 }
-function exportPDF(){
+/* AI 繪本插畫：依實際行程地點客製生成（快取避免重複耗時） */
+let _artCache={key:'',cover:'',bg:''};
+function artKey(t){ return (t.trip.dest||'')+'|'+(t.trip.name||'')+'|'+t.items.map(x=>x.title).join(','); }
+async function genTripArt(t){
+  const key=artKey(t);
+  if(!API_URL){ _artCache={key,cover:'',bg:''}; return _artCache; }
+  if(_artCache.key===key&&(_artCache.cover||_artCache.bg)) return _artCache;
+  const places=[...new Set(t.items.map(x=>String(x.title||'').split('（')[0].trim()).filter(Boolean))].slice(0,10).join('、')||'當地著名景點';
+  const dest=t.trip.dest||t.trip.name||'旅行';
+  toast('🎨 AI 正在依你的行程繪製專屬插畫（約 20〜40 秒）…');
+  let cover='',bg='';
+  try{
+    const r=await api('aiImage',{prompt:`彩色鉛筆與蠟筆手繪風格的可愛旅遊繪本封面插畫，溫暖童趣、線條放鬆、色彩明亮飽和，類似兒童繪本。主題：${dest}之旅。畫面組合出以下真實地點的代表性場景與元素（這是實際行程）：${places}。前景是一位可愛短髮旅行女孩與一隻圓滾滾的動物吉祥物開心揮手，背景是上述地標組成的風景。天空明亮有雲。整張圖絕對不要出現任何文字、字母、數字或招牌文字。直式構圖。`});
+    if(r&&r.image) cover='data:'+(r.mime||'image/png')+';base64,'+r.image;
+  }catch(e){}
+  try{
+    const r2=await api('aiImage',{prompt:`白色背景上均勻散佈的彩色鉛筆手繪小塗鴉，像可愛貼紙集：與「${dest}」及這些地點相關的代表元素（${places}），加上當地特色食物、交通工具、行李箱、相機、指南針等旅行小物。每個塗鴉獨立、不重疊、周圍留白多。絕對不要出現任何文字、字母或數字。`});
+    if(r2&&r2.image) bg='data:'+(r2.mime||'image/png')+';base64,'+r2.image;
+  }catch(e){}
+  _artCache={key,cover,bg};
+  if(!cover&&!bg) toast('插畫生成未成功，將使用簡約版面');
+  return _artCache;
+}
+async function exportPDF(){
   const t=B(); // 確保 members/bills 初始化
   const days=Math.max(tripDays(),1);
   const dates=t.trip.start? t.trip.start.slice(0,10).replaceAll('-','/')+(t.trip.end?' — '+t.trip.end.replaceAll('-','/'):''):'';
   const set=ILLOS[destSet()], theme=t.trip.color||'#7c9082';
+  const art=await genTripArt(t);
+  const bgTag=art.bg?`<img class="bk-bgart" src="${art.bg}">`:'';
   let html='';
-  // 封面（含目的地主題插畫）
-  html+=`<div class="bk-page"><div class="bk-cover"><div class="bk-cover-in">
+  // 封面：AI 繪本大圖（失敗時退回簡約插畫封面）
+  if(art.cover){
+    html+=`<div class="bk-page"><div class="bk-cover2">
+      <img class="bk-coverart" src="${art.cover}">
+      <div class="bk-covercard">
+        <div class="bk-kicker2">T R A V E L　B O O K</div>
+        <h1>${esc(t.trip.name)}</h1>
+        <div class="bk-sub">${esc(t.trip.dest||'')}</div>
+        ${dates?`<div class="bk-dates2">${dates}</div>`:''}
+        ${t.members.length?`<div class="bk-members2">${t.members.map(m=>`<span>${esc(m)}</span>`).join('')}</div>`:''}
+      </div></div></div>`;
+  }else{
+    html+=`<div class="bk-page"><div class="bk-cover"><div class="bk-cover-in">
       <div class="bk-kicker">T R A V E L &nbsp; B O O K</div>
       <h1>${esc(t.trip.name)}</h1>
       <div class="bk-dest">${esc(t.trip.dest||'')}</div>
@@ -2239,17 +2283,17 @@ function exportPDF(){
       ${t.members.length?`<div class="bk-members">${t.members.map(m=>`<span>${esc(m)}</span>`).join('')}</div>`:''}
       <div class="bk-byline">旅圖 TRIPCANVAS ・ JASON'S LIFE</div>
     </div></div></div>`;
-  // 逐日行程
+  }
+  // 逐日行程（AI 塗鴉當淡色背景水印）
   for(let dd=1;dd<=days;dd++){
     const items=t.items.filter(x=>x.day===dd);
     if(!items.length) continue;
-    html+=`<div class="bk-page"><div class="bk-dayhead"><span class="bk-daynum">Day ${dd}</span><span class="bk-daydate">${esc((dayLabel(dd).split('・')[1]||''))}</span><span class="bk-daymotif">${set.motifs[(dd-1)%set.motifs.length](theme)}</span></div>`;
-    html+=items.map((x,xi)=>`
+    html+=`<div class="bk-page">${bgTag}<div class="bk-content"><div class="bk-dayhead"><span class="bk-daynum">Day ${dd}</span><span class="bk-daydate">${esc((dayLabel(dd).split('・')[1]||''))}</span></div>`;
+    html+=items.map(x=>`
       <div class="bk-item">
         <div class="bk-time">${esc(x.time||'--:--')}</div>
         <div class="bk-body">
-          ${(x.photo&&GOOGLE_KEY)?`<img class="bk-photo" src="${photoUrl(x.photo,700)}" onerror="this.remove()">`
-            :`<div class="bk-illo">${set.motifs[xi%set.motifs.length](theme)}</div>`}
+          ${(x.photo&&GOOGLE_KEY)?`<img class="bk-photo" src="${photoUrl(x.photo,700)}" onerror="this.remove()">`:''}
           <div class="bk-title">${esc(x.title)}</div>
           ${x.loc?`<div class="bk-meta">📍 ${esc(x.loc)}</div>`:''}
           ${x.phone?`<div class="bk-meta">📞 ${esc(x.phone)}</div>`:''}
@@ -2260,18 +2304,18 @@ function exportPDF(){
           ${x.note?`<div class="bk-note">${esc(x.note)}</div>`:''}
         </div>
       </div>`).join('');
-    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div>`;
+    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div></div>`;
   }
   // 記帳總結
   if(t.bills.length){
-    html+=`<div class="bk-page" style="position:relative"><span class="bk-cornermotif">${set.motifs[1%set.motifs.length](theme)}</span><div class="bk-h2">💰 費用總結與結算</div>`;
+    html+=`<div class="bk-page">${bgTag}<div class="bk-content"><div class="bk-h2">💰 費用總結與結算</div>`;
     [...new Set(t.bills.map(b=>b.cur))].forEach(cur=>{
       const paid={},share={},bal={};
       t.members.forEach(m=>{paid[m]=0;share[m]=0;});
       const bills=t.bills.filter(b=>b.cur===cur);
       bills.forEach(b=>{
         paid[b.payer]=(paid[b.payer]||0)+b.amount;
-        b.parts.forEach(p=>{share[p]=(share[p]||0)+b.amount/b.parts.length;});
+        b.parts.forEach(pp=>{share[pp]=(share[pp]||0)+b.amount/b.parts.length;});
       });
       const total=bills.reduce((s,b)=>s+b.amount,0);
       html+=`<div class="bk-cat">${cur}｜總支出 ${fmtMoney(cur,total)}</div>`;
@@ -2280,26 +2324,26 @@ function exportPDF(){
         +'</table>';
       html+=`<table class="bk-table"><tr><th>成員</th><th>已付</th><th>應分攤</th><th>差額</th></tr>`;
       t.members.forEach(m=>{
-        const p=paid[m]||0,s=share[m]||0,d2=p-s; bal[m]=d2;
-        if(p===0&&s===0) return;
-        html+=`<tr><td>${esc(m)}</td><td>${fmtMoney(cur,p)}</td><td>${fmtMoney(cur,s)}</td><td><b>${d2>0?'+':''}${fmtMoney(cur,d2)}</b></td></tr>`;
+        const pd=paid[m]||0,sh=share[m]||0,d2=pd-sh; bal[m]=d2;
+        if(pd===0&&sh===0) return;
+        html+=`<tr><td>${esc(m)}</td><td>${fmtMoney(cur,pd)}</td><td>${fmtMoney(cur,sh)}</td><td><b>${d2>0?'+':''}${fmtMoney(cur,d2)}</b></td></tr>`;
       });
       html+='</table>';
       const moves=settle(bal);
       if(moves.length) html+=`<div class="bk-settle">💸 結算建議：${moves.map(([f,to,v])=>`${esc(f)} → ${esc(to)}：<b>${cur} ${fmtMoney(cur,v)}</b>`).join('　｜　')}</div>`;
     });
-    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div>`;
+    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div></div>`;
   }
   // 行前清單
   if(t.checklist.length){
-    html+=`<div class="bk-page" style="position:relative"><span class="bk-cornermotif">${set.motifs[2%set.motifs.length](theme)}</span><div class="bk-h2">🎒 出發前準備清單</div>`;
+    html+=`<div class="bk-page">${bgTag}<div class="bk-content"><div class="bk-h2">🎒 出發前準備清單</div>`;
     CATS.forEach(cat=>{
       const its=t.checklist.filter(c=>c.cat===cat);
       if(!its.length) return;
       html+=`<div class="bk-cat">${cat}</div><div class="bk-check">`
         +its.map(c=>`<div>${c.done?'☑':'□'} ${esc(c.text)}</div>`).join('')+'</div>';
     });
-    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div>`;
+    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div></div>`;
   }
   $('printBook').innerHTML=html;
   toast('🖨 列印視窗請選「另存為 PDF」，並開啟「背景圖形」讓色彩完整');
