@@ -876,16 +876,20 @@ function isHotelName(s){
   return /飯店|酒店|旅館|旅店|民宿|青年旅舍|會館|溫泉旅|hotel|resort|inn|hostel|motel|suites|villa|ホテル|旅館|호텔/i.test(s||'');
 }
 async function openAgodaFor(name){
-  // 先同步開空白視窗（避免 async 後被瀏覽器擋彈出視窗），解析成功後再導向飯店頁
-  const win=window.open('about:blank','_blank');
+  const isMobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
+  // 桌機：先同步開空白分頁（避免 async 後被擋彈窗），解析後導向
+  // 手機：彈窗＋跨頁導向常被擋，改為解析完成後本頁直接跳轉（按返回可回到行程）
+  const win=isMobile? null : window.open('about:blank','_blank');
   let url='https://www.agoda.com/?cid='+encodeURIComponent(AGODA_CID); // 保底：首頁帶分潤
   if(API_URL){
     try{
+      toast('開啟 Agoda 訂房頁中…');
       const r=await api('agoda',{q:name});
       if(r.hid)       url='https://www.agoda.com/partners/partnersearch.aspx?cid='+encodeURIComponent(AGODA_CID)+'&hid='+encodeURIComponent(r.hid);
       else if(r.city) url='https://www.agoda.com/partners/partnersearch.aspx?cid='+encodeURIComponent(AGODA_CID)+'&city='+encodeURIComponent(r.city);
     }catch(e){}
   }
+  if(isMobile){ location.href=url; return; }
   if(win&&!win.closed){ win.location=url; } else { window.open(url,'_blank'); }
 }
 function agodaGo(id){
