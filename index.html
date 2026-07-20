@@ -186,6 +186,45 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 .mini.agoda-btn{background:#f6e6e2;color:#b3766e}
 .mini.kkday-btn{background:#e2efee;color:#4e8a85}
 .mini.reserve-btn{background:#f6ecdd;color:#a5793f}
+/* ── 旅遊手冊（列印/PDF）版面 ── */
+#printBook{display:none}
+@media print{
+  body{background:#fff}
+  body>header,body>nav,body>main,body>footer,.fab,.toast,.modal-bg{display:none!important}
+  #printBook{display:block}
+  @page{size:A4;margin:12mm}
+  .bk-page{page-break-after:always;box-sizing:border-box;font-family:'Noto Sans TC',sans-serif;color:#3f3c34}
+  .bk-cover{height:268mm;background:var(--grad);border-radius:4mm;display:flex;align-items:center;justify-content:center;text-align:center;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .bk-cover-in{border:0.6mm solid rgba(255,255,255,.65);padding:24mm 14mm;width:78%}
+  .bk-kicker{letter-spacing:2.5mm;font-size:11pt;opacity:.9}
+  .bk-cover h1{font-family:'Noto Serif TC',serif;font-size:34pt;margin:9mm 0 4mm;letter-spacing:1.5mm;font-weight:900}
+  .bk-dest{font-size:14pt;letter-spacing:1mm}
+  .bk-dates{margin-top:6mm;font-size:11pt;opacity:.92}
+  .bk-members{margin-top:8mm}
+  .bk-members span{display:inline-block;border:0.4mm solid rgba(255,255,255,.75);border-radius:99px;padding:1.2mm 4.5mm;margin:1mm;font-size:9.5pt}
+  .bk-byline{margin-top:13mm;font-size:8.5pt;letter-spacing:1.5mm;opacity:.85}
+  .bk-dayhead{display:flex;align-items:baseline;gap:5mm;border-bottom:0.6mm dashed #cfc4ab;padding-bottom:2.5mm;margin-bottom:6mm}
+  .bk-daynum{font-family:'Noto Serif TC',serif;font-size:20pt;font-weight:900;color:var(--teal-d)}
+  .bk-daydate{color:#8c8779;font-size:11pt}
+  .bk-item{display:flex;gap:4mm;page-break-inside:avoid;margin-bottom:5mm}
+  .bk-time{width:13mm;flex-shrink:0;font-weight:700;color:var(--teal-d);font-size:11pt;font-variant-numeric:tabular-nums;padding-top:0.5mm}
+  .bk-body{flex:1;border-bottom:0.35mm dashed #ddd4c0;padding-bottom:4mm;overflow:hidden}
+  .bk-photo{float:right;width:44mm;max-height:33mm;object-fit:cover;border-radius:2.5mm;margin:0 0 2.5mm 4mm;border:0.35mm solid #ddd4c0}
+  .bk-title{font-size:12.5pt;font-weight:700;margin-bottom:1.2mm}
+  .bk-meta{font-size:9pt;color:#75705f;margin-top:0.8mm;line-height:1.45}
+  .bk-transit{display:inline-block;font-size:9pt;color:var(--teal-d);border:0.35mm solid var(--teal);border-radius:99px;padding:0.8mm 3.5mm;margin-top:1.5mm}
+  .bk-note{font-size:9pt;color:#75705f;background:#f2eee3;border-radius:1.5mm;padding:1.8mm 3mm;margin-top:2mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .bk-h2{font-family:'Noto Serif TC',serif;font-size:18pt;font-weight:900;color:var(--teal-d);border-bottom:0.6mm dashed #cfc4ab;padding-bottom:2.5mm;margin:0 0 5mm}
+  .bk-table{width:100%;border-collapse:collapse;margin-bottom:5mm}
+  .bk-table td,.bk-table th{font-size:10pt;padding:2mm 2.5mm;border-bottom:0.35mm solid #e2dac6;text-align:right}
+  .bk-table td:first-child,.bk-table th:first-child{text-align:left}
+  .bk-table th{color:#8c8779;font-weight:500;font-size:9pt}
+  .bk-settle{border-left:1.2mm solid var(--teal);padding:2.5mm 4mm;margin:3mm 0 7mm;font-size:10.5pt;line-height:1.8}
+  .bk-cat{font-size:11.5pt;font-weight:700;color:var(--teal-d);margin:4mm 0 2mm}
+  .bk-check{column-count:2;column-gap:9mm}
+  .bk-check div{font-size:10pt;padding:1.3mm 0;break-inside:avoid}
+  .bk-footer{position:running(none);font-size:8pt;color:#a59c87;text-align:center;letter-spacing:1mm;margin-top:6mm}
+}
 @media(max-width:600px){
   .fx-box{grid-template-columns:1fr}
   .fx-swap{justify-self:center;transform:rotate(90deg)}
@@ -250,6 +289,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <p class="muted" style="margin-bottom:12px">「共同編輯連結」給旅伴打開後即加入這份旅程——行程、記帳、清單全部即時互相同步；「匯出備份」包含你全部的旅程。</p>
       <div class="share-row">
         <button class="btn btn-p" onclick="shareLink()">🤝 複製共同編輯連結</button>
+        <button class="btn btn-o" onclick="exportPDF()">📖 匯出旅遊手冊 PDF</button>
         <button class="btn btn-o" onclick="exportJSON()">⬇️ 匯出備份</button>
         <button class="btn btn-o" onclick="document.getElementById('importFile').click()">⬆️ 匯入備份</button>
         <button class="btn btn-ghost" onclick="resetAll()">重設全部</button>
@@ -365,6 +405,11 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <div class="blog-chip"><span id="blogChipText"></span><button type="button" onclick="clearBlog()">✕</button></div>
     </div>
     <div class="field"><label>備註</label><textarea id="fNote" rows="2" placeholder="門票、預約時間、注意事項…"></textarea></div>
+    <div class="field"><label>📎 附件（照片 / PDF 訂房確認等）</label>
+      <div class="day-chips" id="fFiles" style="flex-wrap:wrap;overflow:visible"></div>
+      <input type="file" id="fFileInput" accept="image/*,application/pdf" hidden onchange="uploadAttachment(this)">
+      <button type="button" class="btn btn-o" style="padding:8px 14px;font-size:.85rem" onclick="document.getElementById('fFileInput').click()">＋ 上傳附件</button>
+    </div>
     <div class="modal-acts">
       <button class="btn btn-ghost" onclick="closeModal('itemModal')">取消</button>
       <button class="btn btn-p" onclick="saveItem()">儲存</button>
@@ -458,6 +503,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 </div>
 
 <footer>旅圖 TripCanvas ・ Jason's Life 開發旅程規劃工具</footer>
+<div id="printBook"></div>
 
 <script>
 /* ================= 設定 =================
@@ -691,6 +737,8 @@ function renderPlan(){
         ${x.transit?`<div class="it-transit">🚇 ${esc(x.transit)}</div>`:''}
         ${x.flight?`<div class="it-flight">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}`:''}${x.arr?` → 🛬 ${esc(x.arr)}`:''}</div>`:''}
         ${x.blogUrl?`<div class="it-blog">📖 <a href="${esc(x.blogUrl)}" target="_blank" rel="noopener">${esc(x.blogTitle||'我的遊記')}</a></div>`:''}
+        ${(x.files&&x.files.length)?`<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">${x.files.map(f=>
+          `<button class="mini" onclick="window.open('${esc(f.url)}','_blank')">${f.mime&&f.mime.startsWith('image/')?'🖼':'📄'} ${esc(f.name.length>14?f.name.slice(0,13)+'…':f.name)}</button>`).join('')}</div>`:''}
         ${x.note?`<div class="it-note">📝 ${esc(x.note)}</div>`:''}
       </div>
       <div class="it-acts">
@@ -953,8 +1001,63 @@ function recKkday(i){
   if(p) window.open(kkdayUrl(p.title),'_blank');
 }
 
+/* ── 行程附件（存 Google Drive，行程只存連結）── */
+let _attachments=[];
+function renderAttachments(){
+  $('fFiles').innerHTML=_attachments.map((f,i)=>
+    `<span class="chip" style="display:inline-flex;align-items:center;gap:6px">
+       <span style="cursor:pointer" onclick="window.open('${esc(f.url)}','_blank')">${f.mime&&f.mime.startsWith('image/')?'🖼':'📄'} ${esc(f.name)}</span>
+       <span style="cursor:pointer;color:var(--rose)" onclick="removeAttachment(${i})">✕</span>
+     </span>`).join('')||'<span class="muted" style="font-size:.82rem">尚無附件</span>';
+}
+function removeAttachment(i){ _attachments.splice(i,1); renderAttachments(); }
+function fileToB64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(String(r.result).split(',')[1]);
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+}
+function shrinkImage(file){ // 大圖自動壓縮：最長邊 1600px JPEG
+  return new Promise(res=>{
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      const max=1600, scale=Math.min(1,max/Math.max(img.width,img.height));
+      if(scale>=1&&file.size<600*1024){ URL.revokeObjectURL(url); res(null); return; }
+      const cv=document.createElement('canvas');
+      cv.width=Math.round(img.width*scale); cv.height=Math.round(img.height*scale);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+      URL.revokeObjectURL(url);
+      res(cv.toDataURL('image/jpeg',0.82).split(',')[1]);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); res(null); };
+    img.src=url;
+  });
+}
+async function uploadAttachment(input){
+  const file=input.files[0]; input.value='';
+  if(!file) return;
+  if(!API_URL){ toast('附件上傳需要後端（見 README）'); return; }
+  if(file.size>8*1024*1024){ toast('檔案過大，上限 8MB'); return; }
+  toast('📎 上傳中，請稍候…');
+  try{
+    let b64=null, mime=file.type||'application/octet-stream', name=file.name;
+    if(mime.startsWith('image/')){
+      b64=await shrinkImage(file);
+      if(b64){ mime='image/jpeg'; name=name.replace(/\.\w+$/,'')+'.jpg'; }
+    }
+    if(!b64) b64=await fileToB64(file);
+    const r=await api('upload',{name,mime,data:b64});
+    if(r.error){ toast('❌ '+r.error); return; }
+    _attachments.push({name,url:r.url,mime});
+    renderAttachments(); toast('附件已上傳 ✅');
+  }catch(e){ toast('❌ 上傳失敗，請稍後再試'); }
+}
+
 /* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
-let _geoResults=[], _geoPicked=null, _geoKind='', _blogResults=[], _blogPicked=null;
+let _geoResults=[], _geoPicked=null, _geoKind='', _geoPhoto='', _blogResults=[], _blogPicked=null;
 function decodeEntities(s){ const t=document.createElement('textarea'); t.innerHTML=s||''; return t.value; }
 async function blogSearch(q){
   if(!BLOG_URL) return [];
@@ -984,7 +1087,7 @@ async function googleSearch(q,pageSize){ // Google Places API (New)，需 GOOGLE
     const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
-        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount,places.types'},
+        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount,places.types,places.photos'},
       body:JSON.stringify({textQuery:q,languageCode:lang,pageSize:pageSize||10})
     });
     const j=await r.json();
@@ -1013,7 +1116,8 @@ async function googleSearch(q,pageSize){ // Google Places API (New)，需 GOOGLE
         lat:String(p.location&&p.location.latitude||''),
         lon:String(p.location&&p.location.longitude||''),
         extratags:{phone:p.internationalPhoneNumber||p.nationalPhoneNumber||''},
-        rating:p.rating||0, count:p.userRatingCount||0, kind
+        rating:p.rating||0, count:p.userRatingCount||0, kind,
+        photo:(p.photos&&p.photos[0]&&p.photos[0].name)||''
       };
     });
   }catch(e){ return null; }
@@ -1075,6 +1179,7 @@ function geoPick(i){
   if(phone) $('fPhone').value=phone;
   _geoPicked={lat:r.lat,lon:r.lon};
   _geoKind=r.kind||'';
+  _geoPhoto=r.photo||'';
   $('geoResults').classList.remove('open');
   toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此資料源無電話，可手動補填）✅');
   transitSearch(false); // 背景自動找最近車站帶入大眾運輸指引
@@ -1223,7 +1328,7 @@ function pickBlog(i){ pickBlogSilent(i); toast('已帶入遊記連結 📖'); }
 function clearBlog(){ _blogPicked=null; $('blogField').style.display='none'; }
 let editingId=null;
 function openItem(id){
-  editingId=id||null; _geoPicked=null; _geoKind=''; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo='';
+  editingId=id||null; _geoPicked=null; _geoKind=''; _geoPhoto=''; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo=''; _attachments=[];
   $('geoResults').classList.remove('open'); $('geoResults').innerHTML='';
   $('flightInfoHint').style.display='none'; $('flightInfoHint').textContent='';
   clearBlog();
@@ -1239,7 +1344,8 @@ function openItem(id){
     _flightInfo=x.flightInfo||'';
     if(_flightInfo){ $('flightInfoHint').style.display='block'; $('flightInfoHint').textContent='✈️ '+_flightInfo; }
     if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
-    _geoKind=x.kind||'';
+    _geoKind=x.kind||''; _geoPhoto=x.photo||'';
+    _attachments=[...(x.files||[])];
     if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
       $('blogField').style.display='block'; $('blogChipText').textContent=_blogPicked.title; }
   }else{
@@ -1247,6 +1353,7 @@ function openItem(id){
     $('fDay').value=curDay; $('fTime').value='09:00';
     $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fDep').value=''; $('fArr').value=''; $('fNote').value='';
   }
+  renderAttachments();
   $('itemModal').classList.add('open');
 }
 function saveItem(){
@@ -1259,7 +1366,7 @@ function saveItem(){
               flight:flightNo,flightInfo:flightNo?_flightInfo:'',
               dep:flightNo?$('fDep').value:'',arr:flightNo?$('fArr').value:'',
               lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:'',
-              kind:_geoKind||'',
+              kind:_geoKind||'',photo:_geoPhoto||'',files:[..._attachments],
               blogTitle:_blogPicked?_blogPicked.title:'',blogUrl:_blogPicked?_blogPicked.url:''};
   if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
   else{ T().items.push({id:uid(),...data}); }
@@ -1850,7 +1957,7 @@ function recAdd(i){
   const day=recTargetDay();
   T().items.push({id:uid(),day,time:'',title:p.title,loc:p.loc,phone:p.phone,
     transit:'',note:p.reason||'',flight:'',flightInfo:'',dep:'',arr:'',
-    lat:p.lat||'',lon:p.lon||'',kind:p.kind||'',blogTitle:'',blogUrl:''});
+    lat:p.lat||'',lon:p.lon||'',kind:p.kind||'',photo:p.photo||'',blogTitle:'',blogUrl:''});
   curDay=day;
   save(); renderPlan(); renderStats();
   toast(`已加入 Day ${day}：${p.title} ✅`);
@@ -1943,6 +2050,90 @@ function handleShareTarget(){ // Android PWA：從 IG 分享進來（manifest sh
   openRec();
   $('igText').value=shared;
   igExtract();
+}
+
+/* ================= 旅遊手冊 PDF ================= */
+function photoUrl(name,w){
+  return 'https://places.googleapis.com/v1/'+name+'/media?maxWidthPx='+(w||700)+'&key='+encodeURIComponent(GOOGLE_KEY);
+}
+function exportPDF(){
+  const t=B(); // 確保 members/bills 初始化
+  const days=Math.max(tripDays(),1);
+  const dates=t.trip.start? t.trip.start.slice(0,10).replaceAll('-','/')+(t.trip.end?' — '+t.trip.end.replaceAll('-','/'):''):'';
+  let html='';
+  // 封面
+  html+=`<div class="bk-page"><div class="bk-cover"><div class="bk-cover-in">
+      <div class="bk-kicker">T R A V E L &nbsp; B O O K</div>
+      <h1>${esc(t.trip.name)}</h1>
+      <div class="bk-dest">${esc(t.trip.dest||'')}</div>
+      ${dates?`<div class="bk-dates">${dates}</div>`:''}
+      ${t.members.length?`<div class="bk-members">${t.members.map(m=>`<span>${esc(m)}</span>`).join('')}</div>`:''}
+      <div class="bk-byline">旅圖 TRIPCANVAS ・ JASON'S LIFE</div>
+    </div></div></div>`;
+  // 逐日行程
+  for(let dd=1;dd<=days;dd++){
+    const items=t.items.filter(x=>x.day===dd);
+    if(!items.length) continue;
+    html+=`<div class="bk-page"><div class="bk-dayhead"><span class="bk-daynum">Day ${dd}</span><span class="bk-daydate">${esc((dayLabel(dd).split('・')[1]||''))}</span></div>`;
+    html+=items.map(x=>`
+      <div class="bk-item">
+        <div class="bk-time">${esc(x.time||'--:--')}</div>
+        <div class="bk-body">
+          ${(x.photo&&GOOGLE_KEY)?`<img class="bk-photo" src="${photoUrl(x.photo,700)}" onerror="this.remove()">`:''}
+          <div class="bk-title">${esc(x.title)}</div>
+          ${x.loc?`<div class="bk-meta">📍 ${esc(x.loc)}</div>`:''}
+          ${x.phone?`<div class="bk-meta">📞 ${esc(x.phone)}</div>`:''}
+          ${x.flight?`<div class="bk-meta">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}${x.arr?' → 🛬 '+esc(x.arr):''}`:''}</div>`:''}
+          ${x.transit?`<div class="bk-transit">🚇 ${esc(x.transit)}</div>`:''}
+          ${x.blogUrl?`<div class="bk-meta">📖 遊記：${esc(x.blogTitle||x.blogUrl)}</div>`:''}
+          ${(x.files&&x.files.length)?`<div class="bk-meta">📎 附件：${x.files.map(f=>esc(f.name)).join('、')}</div>`:''}
+          ${x.note?`<div class="bk-note">${esc(x.note)}</div>`:''}
+        </div>
+      </div>`).join('');
+    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div>`;
+  }
+  // 記帳總結
+  if(t.bills.length){
+    html+='<div class="bk-page"><div class="bk-h2">💰 費用總結與結算</div>';
+    [...new Set(t.bills.map(b=>b.cur))].forEach(cur=>{
+      const paid={},share={},bal={};
+      t.members.forEach(m=>{paid[m]=0;share[m]=0;});
+      const bills=t.bills.filter(b=>b.cur===cur);
+      bills.forEach(b=>{
+        paid[b.payer]=(paid[b.payer]||0)+b.amount;
+        b.parts.forEach(p=>{share[p]=(share[p]||0)+b.amount/b.parts.length;});
+      });
+      const total=bills.reduce((s,b)=>s+b.amount,0);
+      html+=`<div class="bk-cat">${cur}｜總支出 ${fmtMoney(cur,total)}</div>`;
+      html+=`<table class="bk-table"><tr><th>帳單</th><th>金額</th><th>付款人</th><th>分攤</th></tr>`
+        +bills.map(b=>`<tr><td>${esc(b.title)}</td><td>${fmtMoney(cur,b.amount)}</td><td>${esc(b.payer)}</td><td>${b.parts.length} 人</td></tr>`).join('')
+        +'</table>';
+      html+=`<table class="bk-table"><tr><th>成員</th><th>已付</th><th>應分攤</th><th>差額</th></tr>`;
+      t.members.forEach(m=>{
+        const p=paid[m]||0,s=share[m]||0,d2=p-s; bal[m]=d2;
+        if(p===0&&s===0) return;
+        html+=`<tr><td>${esc(m)}</td><td>${fmtMoney(cur,p)}</td><td>${fmtMoney(cur,s)}</td><td><b>${d2>0?'+':''}${fmtMoney(cur,d2)}</b></td></tr>`;
+      });
+      html+='</table>';
+      const moves=settle(bal);
+      if(moves.length) html+=`<div class="bk-settle">💸 結算建議：${moves.map(([f,to,v])=>`${esc(f)} → ${esc(to)}：<b>${cur} ${fmtMoney(cur,v)}</b>`).join('　｜　')}</div>`;
+    });
+    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div>`;
+  }
+  // 行前清單
+  if(t.checklist.length){
+    html+='<div class="bk-page"><div class="bk-h2">🎒 出發前準備清單</div>';
+    CATS.forEach(cat=>{
+      const its=t.checklist.filter(c=>c.cat===cat);
+      if(!its.length) return;
+      html+=`<div class="bk-cat">${cat}</div><div class="bk-check">`
+        +its.map(c=>`<div>${c.done?'☑':'□'} ${esc(c.text)}</div>`).join('')+'</div>';
+    });
+    html+=`<div class="bk-footer">旅圖 TRIPCANVAS ・ ${esc(t.trip.name)}</div></div>`;
+  }
+  $('printBook').innerHTML=html;
+  toast('🖨 列印視窗請選「另存為 PDF」，並開啟「背景圖形」讓色彩完整');
+  setTimeout(()=>window.print(),800); // 稍候讓照片開始載入
 }
 
 /* ================= 分享（共同編輯）/ 匯出入 ================= */
