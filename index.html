@@ -2408,21 +2408,9 @@ async function exportPDF(){
   const days=Math.max(tripDays(),1);
   const dates=t.trip.start? t.trip.start.slice(0,10).replaceAll('-','/')+(t.trip.end?' — '+t.trip.end.replaceAll('-','/'):''):'';
   const set=ILLOS[destSet()], theme=t.trip.color||'#7c9082';
-  const art=await genTripArt(t);
   let html='';
-  // 封面：AI 繪本大圖（失敗時退回簡約插畫封面）
-  if(art.cover){
-    html+=`<div class="bk-page"><div class="bk-cover2">
-      <img class="bk-coverart" src="${art.cover}">
-      <div class="bk-covercard">
-        <div class="bk-kicker2">T R A V E L　B O O K</div>
-        <h1>${esc(t.trip.name)}</h1>
-        <div class="bk-sub">${esc(t.trip.dest||'')}</div>
-        ${dates?`<div class="bk-dates2">${dates}</div>`:''}
-        ${t.members.length?`<div class="bk-members2">${t.members.map(m=>`<span>${esc(m)}</span>`).join('')}</div>`:''}
-      </div></div></div>`;
-  }else{
-    html+=`<div class="bk-page"><div class="bk-cover"><div class="bk-cover-in">
+  // 封面：清新插畫 LOGO 封面
+  html+=`<div class="bk-page"><div class="bk-cover"><div class="bk-cover-in">
       <div class="bk-kicker">T R A V E L &nbsp; B O O K</div>
       <h1>${esc(t.trip.name)}</h1>
       <div class="bk-dest">${esc(t.trip.dest||'')}</div>
@@ -2431,8 +2419,7 @@ async function exportPDF(){
       ${t.members.length?`<div class="bk-members">${t.members.map(m=>`<span>${esc(m)}</span>`).join('')}</div>`:''}
       <div class="bk-byline">旅圖 TRIPCANVAS ・ JASON'S LIFE</div>
     </div></div></div>`;
-  }
-  // 逐日行程：完整時間軸（AI 塗鴉當淡色背景水印）
+  // 逐日行程：完整時間軸
   for(let dd=1;dd<=days;dd++){
     const items=t.items.filter(x=>x.day===dd);
     if(!items.length) continue;
