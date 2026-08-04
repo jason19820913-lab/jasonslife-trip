@@ -259,9 +259,42 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   .count-cell{min-width:70px;padding:12px 6px}
   .count-num{font-size:1.7rem}
 }
+/* ===== 登入首頁（Gate） ===== */
+#gate{position:fixed;inset:0;z-index:400;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto}
+#gate.hide{display:none}
+.gate-card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);padding:34px 30px 26px;text-align:center}
+.gate-logo{font-family:var(--serif);font-size:2.6rem;font-weight:900;color:var(--ink);letter-spacing:.35em;margin-left:.35em}
+.gate-en{font-family:var(--serif);color:var(--teal-d);letter-spacing:.45em;margin:4px 0 2px;font-size:.95rem}
+.gate-tag{color:var(--sub);font-size:.9rem;margin-bottom:22px}
+.gate-card .field{text-align:left}
+.gate-msg{color:var(--rose);font-size:.85rem;min-height:1.2em;margin:2px 0 8px}
+.gate-hint{background:#f2f4ec;border-radius:12px;padding:10px 14px;color:var(--teal-d);font-size:.88rem;margin-bottom:14px}
+.gate-div{display:flex;align-items:center;gap:10px;color:var(--sub);font-size:.85rem;margin:18px 0 12px}
+.gate-div::before,.gate-div::after{content:'';flex:1;border-top:1px dashed var(--line)}
+.gate-guest{display:inline-block;margin-top:16px;color:var(--sub);font-size:.85rem;text-decoration:underline;cursor:pointer}
+.gate-note{color:var(--sub);font-size:.78rem;margin-top:6px}
+.gate-full{width:100%}
 </style>
 </head>
 <body>
+
+<!-- 登入首頁：未登入時優先顯示 -->
+<div id="gate" class="hide">
+  <div class="gate-card">
+    <div class="gate-logo">旅圖</div>
+    <div class="gate-en">T R I P C A N V A S</div>
+    <div class="gate-tag">把旅行排成一頁手帳 ・ Jason's Life 開發</div>
+    <div class="gate-hint" id="gateHint" style="display:none"></div>
+    <div class="field"><label>帳號</label><input id="gUser" placeholder="3-20 字元" autocomplete="username"></div>
+    <div class="field"><label>密碼</label><input id="gPass" type="password" placeholder="至少 6 字元" autocomplete="current-password" onkeydown="if(event.key==='Enter')gateSubmit()"></div>
+    <div class="field" id="gPass2Wrap" style="display:none"><label>確認密碼</label><input id="gPass2" type="password" placeholder="再輸入一次密碼" onkeydown="if(event.key==='Enter')gateSubmit()"></div>
+    <div class="gate-msg" id="gateMsg"></div>
+    <button class="btn btn-p gate-full" id="gateGo" onclick="gateSubmit()">登入</button>
+    <div class="gate-div" id="gateDivText">還沒有帳號？</div>
+    <button class="btn btn-o gate-full" id="gateAlt" onclick="gateMode('register')">立即免費註冊</button>
+    <div class="gate-note">註冊免費・你的旅程會自動同步雲端，換裝置也不會不見</div>
+  </div>
+</div>
 
 <header>
   <div class="hwrap">
@@ -306,7 +339,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <div class="stat"><b id="stSpots">0</b><span>行程項目</span></div>
       <div class="stat"><b id="stPack">0%</b><span>行前準備</span></div>
     </div>
-    <div class="card" style="margin-top:18px">
+    <div class="card" style="margin-top:18px" id="tplCard">
       <h2><span class="dot"></span>🧩 旅程範本市集</h2>
       <p class="muted" style="margin-bottom:12px">套用別人分享的行程範本，或把你的旅程存成範本讓大家使用。</p>
       <div id="tplList" class="muted">載入中…</div>
@@ -318,7 +351,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
       <h2><span class="dot"></span>分享與備份</h2>
       <p class="muted" style="margin-bottom:12px">「共同編輯連結」給旅伴打開後即加入這份旅程——行程、記帳、清單全部即時互相同步；「匯出備份」包含你全部的旅程。</p>
       <div class="share-row">
-        <button class="btn btn-p" onclick="shareLink()">🤝 複製共同編輯連結</button>
+        <button class="btn btn-p" id="shareCollabBtn" onclick="shareLink()">🤝 複製共同編輯連結</button>
         <button class="btn btn-o" onclick="exportPDF()">📖 匯出旅遊手冊 PDF</button>
         <button class="btn btn-o" onclick="exportJSON()">⬇️ 匯出備份</button>
         <button class="btn btn-o" onclick="document.getElementById('importFile').click()">⬆️ 匯入備份</button>
@@ -1836,6 +1869,55 @@ async function api(action, params){
 }
 function renderCloudBtn(){
   $('cloudBtn').textContent = state.account? '☁️ '+state.account.user : '☁️ 未登入';
+  applyLoginGates();
+}
+/* ===== 登入首頁（Gate）：未登入優先顯示；訪客可逛但看不到分享/共編 ===== */
+let _gateMode='login';
+function applyLoginGates(){ // 分享與共編功能：登入後才顯示
+  const on=!API_URL||!!state.account;
+  const tpl=$('tplCard'), sh=$('shareCollabBtn');
+  if(tpl) tpl.style.display=on?'':'none';
+  if(sh) sh.style.display=on?'':'none';
+}
+function showGate(hint){
+  gateMode('login');
+  const h=$('gateHint');
+  if(hint){ h.textContent=hint; h.style.display='block'; } else h.style.display='none';
+  $('gate').classList.remove('hide');
+}
+function hideGate(){ $('gate').classList.add('hide'); }
+function gateMode(m){
+  _gateMode=m;
+  $('gPass2Wrap').style.display=m==='register'?'block':'none';
+  $('gateGo').textContent=m==='register'?'註冊並開始使用':'登入';
+  $('gateDivText').textContent=m==='register'?'已經有帳號？':'還沒有帳號？';
+  $('gateAlt').textContent=m==='register'?'返回登入':'立即免費註冊';
+  $('gateAlt').setAttribute('onclick',`gateMode('${m==='register'?'login':'register'}')`);
+  $('gateMsg').textContent='';
+}
+async function gateSubmit(){
+  const u=$('gUser').value.trim(), p=$('gPass').value, msg=$('gateMsg');
+  msg.textContent='';
+  if(u.length<3||u.length>20){ msg.textContent='帳號需 3-20 字元'; return; }
+  if(p.length<6){ msg.textContent='密碼至少 6 字元'; return; }
+  if(_gateMode==='register'&&p!==$('gPass2').value){ msg.textContent='兩次輸入的密碼不一致'; return; }
+  $('gateGo').disabled=true; $('gateGo').textContent=_gateMode==='register'?'註冊中…':'登入中…';
+  try{
+    const r=await api(_gateMode==='register'?'register':'login',{user:u,pass:p});
+    if(r.error){ msg.textContent=r.error; return; }
+    state.account={user:u,token:r.token}; save(false);
+    hideGate(); renderCloudBtn();
+    if(_gateMode==='register'){ toast('註冊成功，歡迎使用旅圖 ✅'); cloudSave(); }
+    else{
+      if(r.hasData){
+        if(confirm('雲端已有你的旅程資料。\n\n按「確定」→ 載入雲端資料（覆蓋此裝置）\n按「取消」→ 保留此裝置資料（可再手動上傳覆蓋雲端）')) await cloudLoad();
+      }else cloudSave();
+      toast('登入成功，歡迎回來 ✅');
+    }
+    renderTemplates();
+    loadCollabFromHash(); // 若是從共同編輯連結進來，登入後接著加入
+  }catch(e){ msg.textContent='連線失敗，請稍後再試'; }
+  finally{ $('gateGo').disabled=false; $('gateGo').textContent=_gateMode==='register'?'註冊並開始使用':'登入'; }
 }
 function openCloud(){ renderCloudBody(); $('cloudModal').classList.add('open'); }
 function renderCloudBody(){
@@ -1899,6 +1981,7 @@ function doLogout(){
   if(!confirm('登出後此裝置的資料仍會保留在瀏覽器，但不再自動同步。確定登出？')) return;
   state.account=null; save(false);
   renderCloudBtn(); renderCloudBody(); renderTemplates();
+  closeModal('cloudModal'); showGate();
 }
 function scheduleCloudSave(){
   if(!API_URL||!state.account) return;
@@ -2521,8 +2604,12 @@ async function shareLink(){
 async function loadCollabFromHash(){
   if(!location.hash.startsWith('#c=')) return;
   const code=location.hash.slice(3);
+  if(!API_URL||!code){ history.replaceState(null,'',location.pathname); return; }
+  if(!state.account){ // 共同編輯需登入：保留連結，登入後自動加入
+    showGate('🤝 你收到一份共同編輯旅程！登入或註冊後即可加入');
+    return;
+  }
   history.replaceState(null,'',location.pathname);
-  if(!API_URL||!code) return;
   const exist=state.trips.find(t=>t.collab===code);
   if(exist){ state.activeId=exist.id; save(false); renderAll(); collabPoll(); return; }
   try{
@@ -2643,7 +2730,9 @@ function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats();
   loadFromHash();       // 舊版長連結 #trip=
   renderAll();
   loadShareFromHash();  // 舊版快照短連結 #s=
-  loadCollabFromHash(); // 共同編輯連結 #c=
+  loadCollabFromHash(); // 共同編輯連結 #c=（未登入會先顯示登入頁）
+  // 登入首頁：必須登入/註冊才能使用
+  if(API_URL&&!state.account&&$('gate').classList.contains('hide')) showGate();
   loadRates();
   renderTemplates();   // 範本市集
   handleShareTarget(); // Android PWA 分享帶入
