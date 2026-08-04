@@ -86,7 +86,7 @@ h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--grad);display:in
 .gap-chip.uber{background:#3a3935;color:#fff}
 .gap-chip.uber:hover{background:#54524d}
 .it-time{font-weight:900;color:var(--teal-d);min-width:56px;font-variant-numeric:tabular-nums}
-.it-body{flex:1}
+.it-body{flex:1;min-width:0;overflow-wrap:anywhere;word-break:break-word}
 .it-title{font-weight:700}
 .it-loc{font-size:.85rem;color:var(--sub);margin-top:2px}
 .it-phone{font-size:.85rem;color:var(--sub);margin-top:2px}
@@ -258,6 +258,12 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
   .fx-swap{justify-self:center;transform:rotate(90deg)}
   .count-cell{min-width:70px;padding:12px 6px}
   .count-num{font-size:1.7rem}
+  /* 行程卡片：內容不撐版、功能鍵移到下方橫排 */
+  .it-item{flex-wrap:wrap;gap:10px 12px}
+  .it-time{min-width:46px}
+  .it-acts{flex-direction:row;flex-wrap:wrap;flex-basis:100%;gap:6px;margin-top:2px}
+  .it-acts .mini{padding:7px 11px;font-size:.8rem}
+  .it-gap{flex-wrap:wrap}
 }
 /* ===== 登入首頁（Gate） ===== */
 #gate{position:fixed;inset:0;z-index:400;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto}
