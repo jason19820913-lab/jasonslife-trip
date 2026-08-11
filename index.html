@@ -652,6 +652,7 @@ function migrate(){
   }catch(e){ return null; }
 }
 let state = load();
+state.tomb = state.tomb || {}; // 旅程刪除墓碑：{旅程id:刪除時間}，跨裝置合併時用來確認刪除
 function load(){
   try{ const raw=localStorage.getItem(LS_KEY); if(raw) return JSON.parse(raw); }catch(e){}
   return migrate() || defaultState();
@@ -868,6 +869,7 @@ function delTrip(id){
   const t=state.trips.find(x=>x.id===id);
   if(!confirm(`確定刪除旅程「${t.trip.name}」？此動作無法復原。`)) return;
   state.trips=state.trips.filter(x=>x.id!==id);
+  state.tomb=state.tomb||{}; state.tomb[id]=Date.now(); // 墓碑：讓其他裝置也知道這個旅程被刪了
   if(state.activeId===id) state.activeId=state.trips[0].id;
   save(); renderTrips(); renderAll();
 }
@@ -1853,8 +1855,43 @@ document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>
 
 /* ================= 帳號 / 雲端同步 ================= */
 let syncTimer=null, syncing=false, lastSyncText='', _pendingSave=false, _dirty=false;
-function cloudPayload(){ return JSON.stringify({trips:state.trips, activeId:state.activeId}); }
-function localMaxUpdated(){ return Math.max(0,...state.trips.map(t=>t.updatedAt||0)); }
+function cloudPayload(){ return JSON.stringify({trips:state.trips, activeId:state.activeId, tomb:state.tomb||{}}); }
+function localMaxUpdated(){
+  const tombMax=Math.max(0,...Object.values(state.tomb||{}));
+  return Math.max(0,tombMax,...state.trips.map(t=>t.updatedAt||0));
+}
+/* 逐旅程合併：每個旅程各自比新舊、取較新版本，不再整包互相覆蓋。
+ * 回傳本機內容是否有變動。刪除靠墓碑時間戳確認，避免刪掉的旅程又跑回來。 */
+function applyCloudMerge(j){
+  state.tomb=state.tomb||{};
+  const ct=j.tomb||{};
+  _mergeLocalNewer=false;
+  Object.keys(state.tomb).forEach(id=>{ if(!ct[id]||state.tomb[id]>ct[id]) _mergeLocalNewer=true; }); // 本機的刪除雲端還不知道
+  Object.keys(ct).forEach(id=>{ if(!state.tomb[id]||ct[id]>state.tomb[id]) state.tomb[id]=ct[id]; });
+  const before=JSON.stringify(state.trips);
+  const map=new Map();
+  (j.trips||[]).forEach(t=>{ if(t&&t.id) map.set(t.id,t); });
+  state.trips.forEach(t=>{
+    const c=map.get(t.id);
+    if(!c||(t.updatedAt||0)>=(c.updatedAt||0)){
+      if(!c||(t.updatedAt||0)>(c.updatedAt||0)) _mergeLocalNewer=true; // 本機有雲端沒有的更新 → 合併後要補上傳
+      map.set(t.id,t);
+    }
+  });
+  let trips=[...map.values()].filter(t=>!(state.tomb[t.id]&&state.tomb[t.id]>(t.updatedAt||0)));
+  if(!trips.length) trips=[...map.values()]; // 保底：絕不合併成空的
+  if(trips.length) state.trips=trips;
+  if(!state.trips.some(t=>t.id===state.activeId)){
+    state.activeId=(j.activeId&&state.trips.some(t=>t.id===j.activeId))? j.activeId : (state.trips[0]&&state.trips[0].id);
+  }
+  const changed=JSON.stringify(state.trips)!==before;
+  localStorage.setItem(LS_KEY,JSON.stringify(state)); // 直接寫入，不觸發再上傳
+  return changed;
+}
+function handleAuthLost(){
+  state.account=null; save(false); renderCloudBtn();
+  showGate('⚠️ 登入已失效，請重新登入。放心：這台裝置的行程都還在，登入後會自動合併上傳');
+}
 async function api(action, params){
   // GAS 冷啟動偶爾要幾秒，超過 2.5 秒給提示避免以為壞掉（每次瀏覽只提示一次）
   const slow=setTimeout(()=>{
@@ -1912,12 +1949,11 @@ async function gateSubmit(){
     if(r.error){ msg.textContent=r.error; return; }
     state.account={user:u,token:r.token}; save(false);
     hideGate(); renderCloudBtn();
-    if(_gateMode==='register'){ toast('註冊成功，歡迎使用旅圖 ✅'); cloudSave(); }
+    if(_gateMode==='register'){ _pulledOnce=true; toast('註冊成功，歡迎使用旅圖 ✅'); cloudSave(); }
     else{
-      if(r.hasData){
-        if(confirm('雲端已有你的旅程資料。\n\n按「確定」→ 載入雲端資料（覆蓋此裝置）\n按「取消」→ 保留此裝置資料（可再手動上傳覆蓋雲端）')) await cloudLoad();
-      }else cloudSave();
-      toast('登入成功，歡迎回來 ✅');
+      await cloudPoll(); // 自動與雲端合併（兩邊較新的旅程都保留），不再整包覆蓋
+      renderAll();
+      toast('登入成功，已與雲端同步 ✅');
     }
     renderTemplates();
     loadCollabFromHash(); // 若是從共同編輯連結進來，登入後接著加入
@@ -1960,6 +1996,7 @@ async function doRegister(){
     const r=await api('register',{user:u,pass:p});
     if(r.error){toast('❌ '+r.error);return;}
     state.account={user:u,token:r.token}; save(false);
+    _pulledOnce=true; // 新帳號雲端必為空，可直接上傳
     renderCloudBtn(); renderCloudBody();
     toast('註冊成功，已登入 ✅'); cloudSave();
   }catch(e){ toast('❌ 連線失敗，請稍後再試'); }
@@ -1972,14 +2009,8 @@ async function doLogin(){
     if(r.error){toast('❌ '+r.error);return;}
     state.account={user:u,token:r.token}; save(false);
     renderCloudBtn();
-    if(r.hasData){
-      if(confirm('雲端已有你的旅程資料。\n\n按「確定」→ 載入雲端資料（覆蓋此裝置）\n按「取消」→ 保留此裝置資料（可再手動上傳覆蓋雲端）')){
-        await cloudLoad();
-      }
-    }else{
-      cloudSave();
-    }
-    renderCloudBody(); renderTemplates(); toast('登入成功 ✅');
+    await cloudPoll(); // 自動與雲端合併（兩邊較新的旅程都保留），不再整包覆蓋
+    renderCloudBody(); renderTemplates(); renderAll(); toast('登入成功，已與雲端同步 ✅');
   }catch(e){ toast('❌ 連線失敗，請稍後再試'); }
 }
 function doLogout(){
@@ -1988,27 +2019,40 @@ function doLogout(){
   renderCloudBtn(); renderCloudBody(); renderTemplates();
   closeModal('cloudModal'); showGate();
 }
+let _pulledOnce=false, _staleRetry=false, _warnedFail=false, _mergeLocalNewer=false;
 function scheduleCloudSave(){
   if(!API_URL||!state.account) return;
   _dirty=true;
   clearTimeout(syncTimer);
-  syncTimer=setTimeout(()=>cloudSave(),3000);
+  syncTimer=setTimeout(()=>cloudSave(),800); // 每次變動 0.8 秒內就上傳（連續打字自動合併成一次）
 }
 async function cloudSave(manual){
   if(!API_URL||!state.account) return;
+  if(!_pulledOnce){ cloudPoll(); return; } // 先拉後推：還沒跟雲端合併過之前，禁止上傳（避免舊資料蓋掉雲端）
   if(syncing){ _pendingSave=true; return; } // 上傳中有新修改 → 排隊，完成後補傳
   syncing=true;
   try{
     const r=await api('save',{user:state.account.user,token:state.account.token,data:cloudPayload(),updatedAt:localMaxUpdated()});
+    if(r.stale){ // 雲端有更新的資料 → 先合併、再重新上傳（後端已擋下這次覆蓋）
+      try{ if(applyCloudMerge(JSON.parse(r.data))) renderAll(); }catch(e){}
+      syncing=false;
+      if(!_staleRetry){ _staleRetry=true; await cloudSave(manual); _staleRetry=false; }
+      if(_pendingSave){ _pendingSave=false; cloudSave(); }
+      return;
+    }
     if(r.error){
       if(manual) toast('❌ '+r.error);
-      if(r.error.includes('登入')) { state.account=null; save(false); renderCloudBtn(); }
+      if(r.error.includes('登入')) handleAuthLost();
     }else{
-      _dirty=false;
+      _dirty=false; _warnedFail=false;
       lastSyncText='上次同步：'+new Date().toLocaleString('zh-TW');
       if(manual){ toast('已上傳到雲端 ✅'); renderCloudBody(); }
     }
-  }catch(e){ if(manual) toast('❌ 連線失敗'); }
+  }catch(e){ // 網路失敗：明確告知＋自動重試，不再無聲吞掉
+    if(manual) toast('❌ 連線失敗');
+    else if(!_warnedFail){ _warnedFail=true; toast('⚠️ 雲端上傳未成功，將自動重試（請留意網路）'); }
+    setTimeout(()=>{ if(_dirty) cloudSave(); },8000);
+  }
   syncing=false;
   if(_pendingSave){ _pendingSave=false; cloudSave(); } // 補傳排隊中的修改
 }
@@ -2018,22 +2062,20 @@ async function cloudPoll(){
   if(document.querySelector('.modal-bg.open')) return; // 正在編輯視窗，不打擾
   try{
     const r=await api('load',{user:state.account.user,token:state.account.token});
-    if(r.error||!r.data) return;
-    const cloudAt=Number(r.updatedAt)||0, localAt=localMaxUpdated();
-    if(_dirty||localAt>cloudAt){ scheduleCloudSave(); return; } // 本地較新 → 自動補上傳
-    if(cloudAt>localAt){ // 雲端較新 → 自動載入
-      const j=JSON.parse(r.data);
-      if(j.trips&&j.trips.length){
-        const keepActive=state.activeId&&j.trips.some(t=>t.id===state.activeId);
-        state.trips=j.trips;
-        state.activeId=keepActive? state.activeId
-          : (j.activeId&&j.trips.some(t=>t.id===j.activeId)? j.activeId : j.trips[0].id);
-        localStorage.setItem(LS_KEY,JSON.stringify(state)); // 直接寫入，不觸發再上傳
-        renderAll();
-        lastSyncText='上次同步：'+new Date().toLocaleString('zh-TW');
-        toast('☁️ 已同步雲端最新行程');
-      }
+    if(r.error){ if(String(r.error).includes('登入')) handleAuthLost(); return; }
+    _pulledOnce=true; // 已與雲端見過面，之後才允許上傳
+    const cloudAt=Number(r.updatedAt)||0;
+    if(r.data){
+      try{
+        if(applyCloudMerge(JSON.parse(r.data))){ // 逐旅程合併，兩邊較新的都保留
+          renderAll();
+          lastSyncText='上次同步：'+new Date().toLocaleString('zh-TW');
+          toast('☁️ 已同步雲端最新行程');
+        }
+      }catch(e){}
     }
+    if(_dirty||_mergeLocalNewer||localMaxUpdated()>cloudAt) cloudSave(); // 合併後本機有更新 → 立即補上傳
+    _mergeLocalNewer=false;
   }catch(e){}
 }
 /* 關閉/切走頁面前，未上傳的修改用 sendBeacon 搶救送出 */
@@ -2754,10 +2796,13 @@ function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats();
       }
     }catch(e){}
   },4000);
-  if(API_URL&&state.account) cloudLoad(); // 開啟頁面時自動拉最新雲端資料
-  if(API_URL){ // 自動雙向同步：每 45 秒 + 回到分頁時檢查（帳號雲端 + 協作旅程）
-    setInterval(()=>{ cloudPoll(); collabPoll(); },45000);
-    document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ cloudPoll(); collabPoll(); } });
+  if(API_URL&&state.account) cloudPoll(); // 開啟頁面：與雲端「合併」而非整包覆蓋
+  if(API_URL){ // 自動雙向同步：每 20 秒 + 回到/離開分頁時檢查（帳號雲端 + 協作旅程）
+    setInterval(()=>{ cloudPoll(); collabPoll(); },20000);
+    document.addEventListener('visibilitychange',()=>{
+      if(document.hidden){ if(_dirty) cloudSave(); } // 切走前把未上傳的修改立即送出
+      else { cloudPoll(); collabPoll(); }
+    });
     window.addEventListener('focus',()=>{ cloudPoll(); collabPoll(); });
   }
 })();
