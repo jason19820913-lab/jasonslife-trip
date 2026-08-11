@@ -1875,7 +1875,10 @@ function applyCloudMerge(j){
     const c=map.get(t.id);
     if(!c||(t.updatedAt||0)>=(c.updatedAt||0)){
       if(!c||(t.updatedAt||0)>(c.updatedAt||0)) _mergeLocalNewer=true; // 本機有雲端沒有的更新 → 合併後要補上傳
+      if(c&&c.collab&&!t.collab) t.collab=c.collab; // 共編代碼絕不因合併弄丟
       map.set(t.id,t);
+    }else{
+      if(t.collab&&!c.collab) c.collab=t.collab; // 同上：雲端版本沒代碼就從本機補回
     }
   });
   let trips=[...map.values()].filter(t=>!(state.tomb[t.id]&&state.tomb[t.id]>(t.updatedAt||0)));
@@ -2074,8 +2077,12 @@ async function cloudPoll(){
         }
       }catch(e){}
     }
-    if(_dirty||_mergeLocalNewer||localMaxUpdated()>cloudAt) cloudSave(); // 合併後本機有更新 → 立即補上傳
-    _mergeLocalNewer=false;
+    const merged=_mergeLocalNewer; _mergeLocalNewer=false;
+    if(_dirty||merged||localMaxUpdated()>cloudAt) cloudSave(); // 合併後本機有更新 → 立即補上傳
+    if(merged){ // 帳號雲端合併後，共編旅程也跟房間校正一次（新舊由房間的時間戳判定）
+      state.trips.forEach(t=>{ if(t.collab) _collabDirtyIds.add(t.id); });
+      collabPush();
+    }
   }catch(e){}
 }
 /* 關閉/切走頁面前，未上傳的修改用 sendBeacon 搶救送出 */
@@ -2086,11 +2093,10 @@ window.addEventListener('pagehide',()=>{
       data:cloudPayload(),updatedAt:localMaxUpdated()});
     navigator.sendBeacon(API_URL,new Blob([body],{type:'text/plain;charset=utf-8'}));
   }
-  const t=T();
-  if(_collabDirty&&t.collab){ // 協作旅程未推送的修改也搶救送出
+  state.trips.filter(t=>t.collab&&_collabDirtyIds.has(t.id)).forEach(t=>{ // 協作旅程未推送的修改也搶救送出
     const body=JSON.stringify({action:'collabSave',code:t.collab,data:collabPayload(t),updatedAt:t.updatedAt||Date.now()});
     navigator.sendBeacon(API_URL,new Blob([body],{type:'text/plain;charset=utf-8'}));
-  }
+  });
 });
 async function cloudLoad(manual){
   if(!API_URL||!state.account) return;
@@ -2663,52 +2669,67 @@ async function loadCollabFromHash(){
     const r=await api('collabGet',{code});
     if(r.error){ toast('❌ '+r.error); return; }
     const j=JSON.parse(r.data);
+    // 自我修復：本機已有「同名但沒接上房間」的旅程（例如共編代碼曾在同步中遺失）→ 重新接回，取較新內容
+    const same=state.trips.find(x=>!x.collab&&x.trip&&j.trip&&x.trip.name===j.trip.name);
+    if(same&&confirm(`你已有旅程「${j.trip.name}」。要把它重新接上這個共同編輯房間嗎？\n\n確定 → 接上房間，兩邊以較新的內容同步\n取消 → 另外加入一份房間裡的版本`)){
+      same.collab=code;
+      if((same.updatedAt||0)>(Number(r.updatedAt)||0)){ _collabDirtyIds.add(same.id); collabPush(); } // 本機較新 → 推上房間
+      else applyCollab(same,j); // 房間較新 → 拉下來
+      state.activeId=same.id; curDay=1;
+      localStorage.setItem(LS_KEY,JSON.stringify(state));
+      renderAll(); scheduleCloudSave(); toast('🤝 已重新接上共同編輯房間「'+same.trip.name+'」');
+      return;
+    }
     const t={id:uid(),collab:code,items:[],checklist:[],members:[],bills:[]};
     applyCollab(t,j);
     state.trips.push(t); state.activeId=t.id; curDay=1;
     localStorage.setItem(LS_KEY,JSON.stringify(state));
-    renderAll(); toast('🤝 已加入共同旅程「'+t.trip.name+'」，內容會即時同步');
+    renderAll(); scheduleCloudSave(); toast('🤝 已加入共同旅程「'+t.trip.name+'」，內容會即時同步');
   }catch(e){ toast('❌ 讀取共同旅程失敗，請稍後再試'); }
 }
-/* 協作推送與輪詢 */
-let collabTimer=null,_collabDirty=false,_collabBusy=false;
+/* 協作推送與輪詢：涵蓋「所有」有共編代碼的旅程，不只目前開啟的那份 */
+let collabTimer=null,_collabDirtyIds=new Set(),_collabBusy=false;
 function scheduleCollabPush(){
   const t=T();
   if(!API_URL||!t.collab) return;
-  _collabDirty=true;
+  _collabDirtyIds.add(t.id);
   clearTimeout(collabTimer);
-  collabTimer=setTimeout(()=>collabPush(),3000);
+  collabTimer=setTimeout(()=>collabPush(),800); // 與帳號雲端一致：0.8 秒內推送
 }
 async function collabPush(){
-  const t=T();
-  if(!API_URL||!t.collab||_collabBusy) return;
+  if(!API_URL||_collabBusy) return;
   _collabBusy=true;
-  try{
-    const r=await api('collabSave',{code:t.collab,data:collabPayload(t),updatedAt:t.updatedAt||Date.now()});
-    if(r&&r.stale&&r.data){ // 旅伴改了更新的版本 → 改為拉取
-      applyCollab(t,JSON.parse(r.data));
-      localStorage.setItem(LS_KEY,JSON.stringify(state));
-      renderAll(); toast('🤝 已同步旅伴的最新內容');
-    }
-    if(r&&(r.success||r.stale)) _collabDirty=false;
-  }catch(e){}
+  for(const t of state.trips.filter(x=>x.collab&&_collabDirtyIds.has(x.id))){
+    try{
+      const r=await api('collabSave',{code:t.collab,data:collabPayload(t),updatedAt:t.updatedAt||Date.now()});
+      if(r&&r.stale&&r.data){ // 旅伴改了更新的版本 → 改為拉取
+        applyCollab(t,JSON.parse(r.data));
+        localStorage.setItem(LS_KEY,JSON.stringify(state));
+        renderAll(); toast('🤝 已同步旅伴的最新內容');
+      }
+      if(r&&(r.success||r.stale)) _collabDirtyIds.delete(t.id);
+    }catch(e){}
+  }
   _collabBusy=false;
 }
 async function collabPoll(){
-  const t=T();
-  if(!API_URL||!t.collab||_collabBusy) return;
+  if(!API_URL||_collabBusy) return;
   if(document.querySelector('.modal-bg.open')) return; // 編輯視窗開啟時不打擾
-  try{
-    const r=await api('collabGet',{code:t.collab});
-    if(r.error||!r.data) return;
-    const remoteAt=Number(r.updatedAt)||0, localAt=t.updatedAt||0;
-    if(_collabDirty||localAt>remoteAt){ scheduleCollabPush(); return; }
-    if(remoteAt>localAt){
-      applyCollab(t,JSON.parse(r.data));
-      localStorage.setItem(LS_KEY,JSON.stringify(state));
-      renderAll(); toast('🤝 已同步旅伴的最新內容');
-    }
-  }catch(e){}
+  let changed=false;
+  for(const t of state.trips.filter(x=>x.collab)){
+    try{
+      const r=await api('collabGet',{code:t.collab});
+      if(r.error||!r.data) continue;
+      const remoteAt=Number(r.updatedAt)||0, localAt=t.updatedAt||0;
+      if(_collabDirtyIds.has(t.id)||localAt>remoteAt){ _collabDirtyIds.add(t.id); continue; } // 本地較新 → 待推送
+      if(remoteAt>localAt){ applyCollab(t,JSON.parse(r.data)); changed=true; }
+    }catch(e){}
+  }
+  if(changed){
+    localStorage.setItem(LS_KEY,JSON.stringify(state));
+    renderAll(); toast('🤝 已同步旅伴的最新內容');
+  }
+  if(_collabDirtyIds.size) collabPush();
 }
 async function loadShareFromHash(){ // 短代碼連結 #s=xxxxxxxx
   if(!location.hash.startsWith('#s=')) return;
