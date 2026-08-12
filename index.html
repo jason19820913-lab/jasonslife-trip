@@ -2135,11 +2135,15 @@ async function adminRenameTemplate(code,oldName){
     toast('已改名 ✅'); renderTemplates();
   }catch(e){ toast('❌ 連線失敗'); }
 }
+let _tplRetries=0,_tplTimer=null;
 async function renderTemplates(){
   const box=$('tplList');
   if(!API_URL){ box.innerHTML='<span class="muted">此功能需要網站管理者部署後端（見 README）</span>'; return; }
+  clearTimeout(_tplTimer); // 避免多條重試鏈疊加
   try{
     const r=await api('listTemplates',{});
+    if(r.error) throw new Error(r.error);
+    _tplRetries=0;
     if(!r.list||!r.list.length){ box.innerHTML='<span class="muted">還沒有範本，成為第一個分享的人吧！</span>'; return; }
     const admin=isAdmin();
     box.innerHTML=r.list.map(t=>`
@@ -2152,7 +2156,15 @@ async function renderTemplates(){
         <button class="mini del" onclick="event.stopPropagation();adminDelTemplate('${esc(t.code)}','${esc(t.name)}')">🗑</button>`:''}
         <button class="mini nav-btn" onclick="event.stopPropagation();applyTemplate('${esc(t.code)}','${esc(t.name)}')">套用</button>
       </div>`).join('');
-  }catch(e){ box.innerHTML='<span class="muted">⚠️ 範本載入失敗，請稍後重新整理</span>'; }
+  }catch(e){ // 通常是雲端冷啟動：自動重試 3 次（5 秒間隔），並提供手動重載
+    if(_tplRetries<3){
+      _tplRetries++;
+      box.innerHTML='<span class="muted">☁️ 雲端喚醒中，正在載入範本…</span>';
+      _tplTimer=setTimeout(renderTemplates,5000);
+    }else{
+      box.innerHTML='<span class="muted">⚠️ 範本載入失敗　<button class="mini" onclick="_tplRetries=0;renderTemplates()">🔄 重新載入</button></span>';
+    }
+  }
 }
 async function applyTemplate(code,name){
   if(!confirm(`套用範本「${name}」？會新增為一份新旅程，不影響你現有的旅程。`)) return;
