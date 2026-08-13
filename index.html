@@ -355,6 +355,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     <div class="card">
       <h2><span class="dot"></span>分享與備份</h2>
       <p class="muted" style="margin-bottom:12px">「共同編輯連結」給旅伴打開後即加入這份旅程——行程、記帳、清單全部即時互相同步；「匯出備份」包含你全部的旅程。</p>
+      <div id="collabStatus" style="display:none;background:#eef1e6;border-radius:12px;padding:10px 14px;color:var(--teal-d);font-weight:700;font-size:.9rem;margin-bottom:12px"></div>
       <div class="share-row">
         <button class="btn btn-p" id="shareCollabBtn" onclick="shareLink()">🤝 複製共同編輯連結</button>
         <button class="btn btn-o" onclick="exportPDF()">📖 匯出旅遊手冊 PDF</button>
@@ -847,6 +848,7 @@ function renderTrips(){
       <div class="ti">
         <div class="tn">${esc(t.trip.name)} ${cur?'<span class="badge">目前</span>':''}</div>
         <div class="tm">📍 ${esc(t.trip.dest)||'未設定'} ・ ${dates} ・ ${t.items.length} 個行程</div>
+        ${t.collab?`<div class="tm" style="color:var(--teal-d)">🤝 ${collabMates(t).length?'已和 '+collabMates(t).map(esc).join('、')+' 共同編輯':'共同編輯中（等待旅伴加入）'}</div>`:''}
       </div>
       ${state.trips.length>1?`<button class="mini del" onclick="event.stopPropagation();delTrip('${t.id}')">刪除</button>`:''}
     </div>`;
@@ -2637,11 +2639,36 @@ async function exportPDF(){
 /* ================= 分享（共同編輯）/ 匯出入 ================= */
 function collabPayload(t){
   return JSON.stringify({v:1,trip:t.trip,items:t.items,checklist:t.checklist,
-    members:t.members||[],bills:t.bills||[],updatedAt:t.updatedAt||Date.now()});
+    members:t.members||[],bills:t.bills||[],users:t.users||[],updatedAt:t.updatedAt||Date.now()});
 }
 function applyCollab(t,j){
   t.trip=j.trip; t.items=j.items||[]; t.checklist=j.checklist||[];
-  t.members=j.members||[]; t.bills=j.bills||[]; t.updatedAt=j.updatedAt||Date.now();
+  t.members=j.members||[]; t.bills=j.bills||[];
+  t.users=[...new Set([...(t.users||[]),...(j.users||[])])]; // 參與者名單取聯集，不會互相洗掉
+  t.updatedAt=j.updatedAt||Date.now();
+}
+function collabMates(t){ // 除了自己以外的共編旅伴
+  const me=state.account&&state.account.user;
+  return (t.users||[]).filter(u=>u&&u!==me);
+}
+function collabTagUser(t){ // 把自己的帳號登記到共編名單，並同步給所有人
+  if(!state.account||!t||!t.collab) return;
+  t.users=t.users||[];
+  if(!t.users.includes(state.account.user)){
+    t.users.push(state.account.user);
+    t.updatedAt=Date.now();
+    localStorage.setItem(LS_KEY,JSON.stringify(state));
+    _collabDirtyIds.add(t.id); collabPush(); scheduleCloudSave();
+  }
+}
+function renderCollabStatus(){ // 「分享與備份」卡片顯示目前旅程的共編狀態
+  const el=$('collabStatus'); if(!el) return;
+  const t=T();
+  if(!t.collab){ el.style.display='none'; return; }
+  const mates=collabMates(t);
+  el.style.display='block';
+  el.textContent=mates.length? '🤝 這份旅程已和 '+mates.join('、')+' 共同編輯，內容即時互相同步'
+                             : '🤝 共同編輯已開啟，等待旅伴打開連結加入';
 }
 async function shareLink(){
   const t=T();
@@ -2650,9 +2677,11 @@ async function shareLink(){
     toast('產生共同編輯連結中…');
     try{
       if(!t.collab){
+        t.users=t.users||[]; // 建房間時就把自己登記進共編名單
+        if(state.account&&!t.users.includes(state.account.user)) t.users.push(state.account.user);
         const r=await api('collabCreate',{data:collabPayload(t),updatedAt:t.updatedAt||Date.now()});
         if(r.code){ t.collab=r.code; save(false); }
-      }
+      }else collabTagUser(t);
       if(t.collab) url=location.origin+location.pathname+'#c='+t.collab;
     }catch(e){}
   }
@@ -2676,7 +2705,7 @@ async function loadCollabFromHash(){
   }
   history.replaceState(null,'',location.pathname);
   const exist=state.trips.find(t=>t.collab===code);
-  if(exist){ state.activeId=exist.id; save(false); renderAll(); collabPoll(); return; }
+  if(exist){ state.activeId=exist.id; save(false); collabTagUser(exist); renderAll(); collabPoll(); return; }
   try{
     const r=await api('collabGet',{code});
     if(r.error){ toast('❌ '+r.error); return; }
@@ -2689,6 +2718,7 @@ async function loadCollabFromHash(){
       else applyCollab(same,j); // 房間較新 → 拉下來
       state.activeId=same.id; curDay=1;
       localStorage.setItem(LS_KEY,JSON.stringify(state));
+      collabTagUser(same);
       renderAll(); scheduleCloudSave(); toast('🤝 已重新接上共同編輯房間「'+same.trip.name+'」');
       return;
     }
@@ -2696,6 +2726,7 @@ async function loadCollabFromHash(){
     applyCollab(t,j);
     state.trips.push(t); state.activeId=t.id; curDay=1;
     localStorage.setItem(LS_KEY,JSON.stringify(state));
+    collabTagUser(t); // 登記自己的帳號 → 對方旅程會顯示「已和 你 共同編輯」
     renderAll(); scheduleCloudSave(); toast('🤝 已加入共同旅程「'+t.trip.name+'」，內容會即時同步');
   }catch(e){ toast('❌ 讀取共同旅程失敗，請稍後再試'); }
 }
@@ -2800,7 +2831,7 @@ function resetAll(){
 }
 
 /* ================= init ================= */
-function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderBillTab(); renderCloudBtn(); renderToday(); renderWeather(); tick();
+function renderAll(){ applyTheme(T().trip.color); renderHeader(); renderStats(); renderPlan(); renderChecklist(); renderBillTab(); renderCloudBtn(); renderCollabStatus(); renderToday(); renderWeather(); tick();
   $('fxCur').value=T().trip.currency||'JPY'; if(rates) fxChanged(); }
 (function init(){
   $('fxCur').innerHTML = CURRENCIES.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('');
