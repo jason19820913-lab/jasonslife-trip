@@ -709,6 +709,11 @@ function renderHeader(){
     if(tr.end) meta += ' ～ ' + tr.end.replaceAll('-','/');
   }
   if(state.trips.length>1) meta += `　(${state.trips.length} 個旅程)`;
+  const t=T();
+  if(t.collab){ // 共編旅程：頁首直接標示旅伴（每個分頁都看得到）
+    const mates=collabMates(t);
+    meta += mates.length? `　🤝 與 ${mates.join('、')} 共同編輯` : '　🤝 共同編輯中';
+  }
   $('hTripMeta').textContent = meta;
 }
 function renderStats(){
