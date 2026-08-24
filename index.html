@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>旅圖 TripCanvas｜我的旅程規劃</title>
 <link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js" defer></script>
 <meta name="description" content="清新設計的旅程規劃網站：多行程管理、行程編排、即時匯率、導航、出發倒數、行前清單、雲端同步。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=Noto+Serif+TC:wght@500;700;900&display=swap" rel="stylesheet">
@@ -369,6 +371,11 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
 
   <!-- 行程 -->
   <section id="sec-plan">
+    <div class="card" style="margin-bottom:14px;padding:14px 18px">
+      <button class="mini" id="tripMapBtn" onclick="toggleTripMap()">🗺 看整趟旅程地圖</button>
+      <div id="tripMap" style="display:none;height:340px;border-radius:14px;margin-top:12px;z-index:0"></div>
+      <div id="tripMapNote" class="muted" style="display:none;margin-top:8px;font-size:.85rem"></div>
+    </div>
     <div class="day-chips" id="dayChips"></div>
     <div class="plan-tools">
       <button class="mini" style="background:var(--grad);color:#fff" onclick="openRec()">✨ 探索推薦</button>
@@ -842,6 +849,58 @@ async function renderWeather(){
   }catch(e){ el.style.display='none'; }
 }
 
+/* ================= 旅程總覽地圖（Leaflet + OpenStreetMap，免費免金鑰） ================= */
+let _lmap=null,_lmarks=null;
+const DAY_COLORS=['#c0564c','#4a7ba6','#5a8a5e','#8a6aa0','#c98a4b','#3f8f86','#a05a78','#5b6d8f','#b0783f','#6b7d6e'];
+function toggleTripMap(){
+  const el=$('tripMap');
+  if(el.style.display==='none'){
+    el.style.display='block';
+    $('tripMapBtn').textContent='🗺 收合地圖';
+    renderTripMap();
+  }else{
+    el.style.display='none'; $('tripMapNote').style.display='none';
+    $('tripMapBtn').textContent='🗺 看整趟旅程地圖';
+  }
+}
+function renderTripMap(){
+  if(typeof L==='undefined'){ // Leaflet 尚未載入（剛開頁或離線）
+    $('tripMapNote').style.display='block';
+    $('tripMapNote').textContent='🗺 地圖元件載入中…（需要網路）';
+    setTimeout(()=>{ if(typeof L!=='undefined'&&$('tripMap').style.display!=='none') renderTripMap(); },1500);
+    return;
+  }
+  const items=T().items.filter(x=>x.lat&&x.lon);
+  const note=$('tripMapNote');
+  if(!items.length){
+    note.style.display='block';
+    note.textContent='目前行程還沒有帶座標的地點——用「搜尋帶入」加入的景點都會自動有座標';
+    return;
+  }
+  if(!_lmap){
+    _lmap=L.map('tripMap',{scrollWheelZoom:false}); // 捲頁不誤觸縮放，雙指/雙擊仍可縮放
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_lmap);
+  }
+  if(_lmarks) _lmarks.remove();
+  _lmarks=L.layerGroup().addTo(_lmap);
+  const bounds=[],byDay={};
+  items.forEach(x=>{ (byDay[x.day]=byDay[x.day]||[]).push(x); });
+  Object.keys(byDay).sort((a,b)=>a-b).forEach(d=>{
+    const col=DAY_COLORS[(d-1)%DAY_COLORS.length], pts=[];
+    byDay[d].forEach(x=>{
+      const ll=[+x.lat,+x.lon]; pts.push(ll); bounds.push(ll);
+      L.marker(ll,{icon:L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,14],
+        html:`<div style="background:${col};color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)">D${d}</div>`})})
+        .bindPopup(`<b>Day ${d}${x.time?'・'+esc(x.time):''}</b><br>${esc(x.title)}${x.loc?'<br><span style="color:#888;font-size:.85em">📍 '+esc(x.loc)+'</span>':''}`)
+        .addTo(_lmarks);
+    });
+    if(pts.length>1) L.polyline(pts,{color:col,weight:2,dashArray:'6 6',opacity:.75}).addTo(_lmarks);
+  });
+  note.style.display='block';
+  note.textContent='圓點顏色代表天數（D1、D2…），虛線是當天行程順序；點圓點可看景點資訊';
+  setTimeout(()=>{ _lmap.invalidateSize(); _lmap.fitBounds(bounds,{padding:[34,34],maxZoom:15}); },80);
+}
 /* ================= 多行程管理 ================= */
 function openTrips(){ renderTrips(); $('tripsModal').classList.add('open'); }
 function renderTrips(){
@@ -887,6 +946,7 @@ function renderPlan(){
   if(curDay>days) curDay=1;
   $('dayChips').innerHTML = Array.from({length:days},(_,i)=>
     `<button class="chip ${i+1===curDay?'active':''}" onclick="curDay=${i+1};renderPlan()">${dayLabel(i+1)}</button>`).join('');
+  if(_lmap&&$('tripMap').style.display!=='none') renderTripMap(); // 地圖開著時跟著行程更新
   // 依使用者自訂順序顯示（陣列順序），可用 ▲▼ 自由挪動
   const items=T().items.filter(x=>x.day===curDay);
   if(!items.length){
