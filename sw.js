@@ -3,7 +3,7 @@
  * 沒有網路時一樣能打開網站查看行程、清單、記帳、電話與地址。
  * 需要網路的功能（搜尋、同步、AI）離線時自然暫停，恢復連線後自動繼續。
  */
-const CACHE = 'tripcanvas-v1';
+const CACHE = 'tripcanvas-v2';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -35,8 +35,9 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // 同源靜態檔與字型：快取優先，背景更新
-  const isFont = url.hostname.includes('fonts.googleapis.com') || url.hostname.includes('fonts.gstatic.com');
+  // 同源靜態檔、字型與地圖元件（Leaflet CDN）：快取優先，背景更新
+  const isFont = url.hostname.includes('fonts.googleapis.com') || url.hostname.includes('fonts.gstatic.com')
+    || url.hostname.includes('cdnjs.cloudflare.com');
   if (url.origin === self.location.origin || isFont) {
     e.respondWith(
       caches.match(req).then(hit => {
