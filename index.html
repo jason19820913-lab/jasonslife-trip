@@ -464,6 +464,10 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     </div>
     <div class="field"><label>地址（用於導航）</label><input id="fLoc" placeholder="可自動帶入或手動輸入"></div>
     <div class="field"><label>電話</label><input id="fPhone" placeholder="可自動帶入或手動輸入" type="tel"></div>
+    <div class="field geo-row"><label>🚗 MapCode（日本租車導航用）</label>
+      <input id="fMapcode" placeholder="日本景點選定後自動查詢，也可手動輸入">
+      <button type="button" class="geo-btn" onclick="mapcodeSearch(true)">🚗 查詢</button>
+    </div>
     <div class="field geo-row"><label>🚇 大眾運輸指引</label>
       <input id="fTransit" placeholder="選定地點後自動帶入最近車站，也可手動輸入">
       <button type="button" class="geo-btn" onclick="transitSearch(true)">🚇 找車站</button>
@@ -961,6 +965,7 @@ function renderPlan(){
         <div class="it-title">${esc(x.title)}</div>
         ${x.loc?`<div class="it-loc">📍 ${esc(x.loc)}</div>`:''}
         ${x.phone?`<div class="it-phone">📞 ${esc(x.phone)}</div>`:''}
+        ${x.mapcode?`<div class="it-transit" style="background:#efe9dc;cursor:pointer" onclick="copyMapcode('${x.id}')" title="點一下複製">🚗 MapCode ${esc(x.mapcode)}　⧉</div>`:''}
         ${x.transit?`<div class="it-transit">🚇 ${esc(x.transit)}</div>`:''}
         ${x.flight?`<div class="it-flight">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}`:''}${x.arr?` → 🛬 ${esc(x.arr)}`:''}</div>`:''}
         ${x.blogUrl?`<div class="it-blog">📖 <a href="${esc(x.blogUrl)}" target="_blank" rel="noopener">${esc(x.blogTitle||'我的遊記')}</a></div>`:''}
@@ -1411,6 +1416,36 @@ function geoPick(i){
   $('geoResults').classList.remove('open');
   toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此資料源無電話，可手動補填）✅');
   transitSearch(false); // 背景自動找最近車站帶入大眾運輸指引
+  mapcodeSearch(false); // 日本景點背景自動查 MapCode（租車導航用）
+}
+/* ── 日本 MapCode 自動查詢（後端代理 japanmapcode.com）── */
+function isJapanPlace(){
+  const loc=($('fLoc').value||'').trim();
+  if(loc) return /日本|Japan|〒/.test(loc); // 地址一定含國名 → 以地址為準（避免韓國座標誤判）
+  if(_geoPicked){ // 沒地址時才用座標粗判
+    const la=+_geoPicked.lat, lo=+_geoPicked.lon;
+    return la>=24&&la<=45.8&&lo>=128.5&&lo<=146;
+  }
+  return false;
+}
+async function mapcodeSearch(manual){
+  if(!API_URL) return;
+  if(!_geoPicked){ if(manual) toast('請先搜尋帶入地點（需要座標）'); return; }
+  if(!isJapanPlace()){ if(manual) toast('MapCode 僅適用於日本地點'); return; }
+  if(!manual&&$('fMapcode').value.trim()) return; // 已有值就不覆蓋
+  if(manual) toast('查詢 MapCode 中…');
+  try{
+    const r=await api('mapcode',{lat:_geoPicked.lat,lng:_geoPicked.lon});
+    if(r.mapcode){
+      $('fMapcode').value=r.mapcode;
+      toast('🚗 已帶入 MapCode：'+r.mapcode);
+    }else if(manual) toast('❌ '+(r.error||'查無 MapCode'));
+  }catch(e){ if(manual) toast('❌ 查詢失敗，請稍後再試'); }
+}
+function copyMapcode(id){
+  const x=T().items.find(i=>i.id===id); if(!x||!x.mapcode) return;
+  navigator.clipboard.writeText(x.mapcode).then(()=>toast('🚗 MapCode 已複製，貼進租車導航即可'))
+    .catch(()=>prompt('MapCode：',x.mapcode));
 }
 /* ── 最近車站自動帶入（OpenStreetMap Overpass API，免金鑰）── */
 function haversine(a1,o1,a2,o2){
@@ -1567,6 +1602,7 @@ function openItem(id){
     $('itemModalTitle').textContent='編輯行程';
     $('fDay').value=x.day; $('fTime').value=x.time||'09:00';
     $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||'';
+    $('fMapcode').value=x.mapcode||'';
     $('fTransit').value=x.transit||''; $('fFlight').value=x.flight||''; $('fNote').value=x.note||'';
     $('fDep').value=x.dep||''; $('fArr').value=x.arr||'';
     _flightInfo=x.flightInfo||'';
@@ -1579,7 +1615,7 @@ function openItem(id){
   }else{
     $('itemModalTitle').textContent='新增行程';
     $('fDay').value=curDay; $('fTime').value='09:00';
-    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fDep').value=''; $('fArr').value=''; $('fNote').value='';
+    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fMapcode').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fDep').value=''; $('fArr').value=''; $('fNote').value='';
   }
   renderAttachments();
   $('itemModal').classList.add('open');
@@ -1590,6 +1626,7 @@ function saveItem(){
   const flightNo=$('fFlight').value.trim().toUpperCase().replace(/\s+/g,'');
   const data={day:+$('fDay').value,time:$('fTime').value,title,
               loc:$('fLoc').value.trim(),phone:$('fPhone').value.trim(),
+              mapcode:$('fMapcode').value.trim(),
               transit:$('fTransit').value.trim(),note:$('fNote').value.trim(),
               flight:flightNo,flightInfo:flightNo?_flightInfo:'',
               dep:flightNo?$('fDep').value:'',arr:flightNo?$('fArr').value:'',
@@ -1610,6 +1647,7 @@ function copyItem(id){ // 複製行程項目：開新增視窗預填全部內容
   openItem();
   $('fDay').value=x.day; $('fTime').value=x.time||'09:00';
   $('fTitle').value=x.title; $('fLoc').value=x.loc||''; $('fPhone').value=x.phone||'';
+  $('fMapcode').value=x.mapcode||'';
   $('fTransit').value=x.transit||''; $('fFlight').value=x.flight||'';
   $('fDep').value=x.dep||''; $('fArr').value=x.arr||''; $('fNote').value=x.note||'';
   _geoPicked=(x.lat&&x.lon)?{lat:x.lat,lon:x.lon}:null;
@@ -2647,6 +2685,7 @@ async function exportPDF(){
           <div class="bk-title">${esc(x.title)}</div>
           ${x.loc?`<div class="bk-meta">📍 ${esc(x.loc)}</div>`:''}
           ${x.phone?`<div class="bk-meta">📞 ${esc(x.phone)}</div>`:''}
+          ${x.mapcode?`<div class="bk-meta">🚗 MapCode ${esc(x.mapcode)}</div>`:''}
           ${x.flight?`<div class="bk-meta">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}${x.arr?' → 🛬 '+esc(x.arr):''}`:''}</div>`:''}
           ${x.transit?`<div class="bk-transit">🚇 ${esc(x.transit)}</div>`:''}
           ${x.blogUrl?`<div class="bk-meta">📖 遊記：${esc(x.blogTitle||x.blogUrl)}</div>`:''}
