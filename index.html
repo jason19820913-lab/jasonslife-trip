@@ -1060,20 +1060,17 @@ async function updateGaps(items){
       chips=`<button class="gap-chip ${r.car.approx?'approx':''}" onclick="gapNav('${a.id}','${b.id}','car')">🚗 約 ${r.car.mins} 分・${r.car.km} km${r.car.approx?'（概估）':''}</button>`;
       if(r.transit) chips+=`<button class="gap-chip ${r.transit.approx?'approx':''}" onclick="gapNav('${a.id}','${b.id}','transit')">🚇 約 ${r.transit.mins} 分${r.transit.approx?'（概估）':''}</button>`;
     }
-    chips+=`<button class="gap-chip uber" onclick="gapUber('${a.id}','${b.id}')" title="起訖點自動帶入 Uber">🚕 Uber</button>`;
+    chips+=`<button class="gap-chip uber" onclick="gapUber('${a.id}','${b.id}')" title="從目前位置叫車前往 ${esc(String(b.title||'').split('（')[0])}">🚕 Uber</button>`;
     el2.style.display='flex';
     el2.innerHTML=`<span class="gline">⋮</span>${chips}`;
   }
 }
 function gapUber(aid,bid){
-  const a=T().items.find(i=>i.id===aid), b=T().items.find(i=>i.id===bid);
-  if(!a||!b) return;
+  const b=T().items.find(i=>i.id===bid);
+  if(!b) return;
   const nm=s=>String(s||'').split('（')[0].trim().substring(0,50); // 去除雙語括號
-  // Uber 官方深層連結：手機開 App、電腦開網頁版，起訖點全部帶好
-  const url='https://m.uber.com/ul/?action=setPickup'
-    +'&pickup[latitude]='+a.lat+'&pickup[longitude]='+a.lon
-    +'&pickup[nickname]='+encodeURIComponent(nm(a.title))
-    +(a.loc?'&pickup[formatted_address]='+encodeURIComponent(a.loc):'')
+  // Uber 官方深層連結：出發點＝目前位置（App 會自動定位），目的地＝這個景點
+  const url='https://m.uber.com/ul/?action=setPickup&pickup=my_location'
     +'&dropoff[latitude]='+b.lat+'&dropoff[longitude]='+b.lon
     +'&dropoff[nickname]='+encodeURIComponent(nm(b.title))
     +(b.loc?'&dropoff[formatted_address]='+encodeURIComponent(b.loc):'');
