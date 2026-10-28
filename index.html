@@ -464,6 +464,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     </div>
     <div class="field"><label>地址（用於導航）</label><input id="fLoc" placeholder="可自動帶入或手動輸入"></div>
     <div class="field"><label>電話</label><input id="fPhone" placeholder="可自動帶入或手動輸入" type="tel"></div>
+    <div class="muted" id="hoursHint" style="display:none;font-size:.82rem;margin:-6px 0 10px">🕐 已帶入營業時間，行程卡片會顯示當天時段</div>
     <div class="field geo-row"><label>🚗 MapCode（日本租車導航用）</label>
       <input id="fMapcode" placeholder="日本景點選定後自動查詢，也可手動輸入">
       <button type="button" class="geo-btn" onclick="mapcodeSearch(true)">🚗 查詢</button>
@@ -965,6 +966,7 @@ function renderPlan(){
         <div class="it-title">${esc(x.title)}</div>
         ${x.loc?`<div class="it-loc">📍 ${esc(x.loc)}</div>`:''}
         ${x.phone?`<div class="it-phone">📞 ${esc(x.phone)}</div>`:''}
+        ${(x.hours&&x.hours.length)?`<div class="it-loc" data-open="0" onclick="toggleHours('${x.id}',this)" style="cursor:pointer" title="點一下展開整週營業時間">🕐 ${esc(hoursLineFor(x))}　▾</div>`:''}
         ${x.mapcode?`<div class="it-transit" style="background:#efe9dc;cursor:pointer" onclick="copyMapcode('${x.id}')" title="點一下複製">🚗 MapCode ${esc(x.mapcode)}　⧉</div>`:''}
         ${x.transit?`<div class="it-transit">🚇 ${esc(x.transit)}</div>`:''}
         ${x.flight?`<div class="it-flight">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}`:''}${x.arr?` → 🛬 ${esc(x.arr)}`:''}</div>`:''}
@@ -1287,7 +1289,28 @@ async function uploadAttachment(input){
 }
 
 /* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
-let _geoResults=[], _geoPicked=null, _geoKind='', _geoPhoto='', _blogResults=[], _blogPicked=null;
+let _geoResults=[], _geoPicked=null, _geoKind='', _geoPhoto='', _geoHours=null, _blogResults=[], _blogPicked=null;
+/* ── 營業時間：依該行程天的星期幾挑出對應時段 ── */
+function dayDateObj(dd){
+  const s=T().trip.start; if(!s) return null;
+  const d=new Date(s.slice(0,10)); if(isNaN(d)) return null;
+  d.setDate(d.getDate()+dd-1); return d;
+}
+function hoursLineFor(x){
+  if(!x.hours||!x.hours.length) return '';
+  const d=dayDateObj(x.day);
+  if(d){
+    const names=['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
+    const line=x.hours.find(h=>String(h).startsWith(names[d.getDay()]));
+    if(line) return line;
+  }
+  return x.hours[0];
+}
+function toggleHours(id,el){
+  const x=T().items.find(i=>i.id===id); if(!x||!x.hours) return;
+  el.dataset.open=el.dataset.open==='1'?'0':'1';
+  el.innerHTML=el.dataset.open==='1'? '🕐 '+x.hours.map(esc).join('<br>　　') : '🕐 '+esc(hoursLineFor(x))+'　▾';
+}
 function decodeEntities(s){ const t=document.createElement('textarea'); t.innerHTML=s||''; return t.value; }
 async function blogSearch(q){
   if(!BLOG_URL) return [];
@@ -1317,7 +1340,7 @@ async function googleSearch(q,pageSize){ // Google Places API (New)，需 GOOGLE
     const r=await fetch('https://places.googleapis.com/v1/places:searchText',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_KEY,
-        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount,places.types,places.photos'},
+        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.nationalPhoneNumber,places.location,places.rating,places.userRatingCount,places.types,places.photos,places.regularOpeningHours.weekdayDescriptions'},
       body:JSON.stringify({textQuery:q,languageCode:lang,pageSize:pageSize||10})
     });
     const j=await r.json();
@@ -1347,7 +1370,8 @@ async function googleSearch(q,pageSize){ // Google Places API (New)，需 GOOGLE
         lon:String(p.location&&p.location.longitude||''),
         extratags:{phone:p.internationalPhoneNumber||p.nationalPhoneNumber||''},
         rating:p.rating||0, count:p.userRatingCount||0, kind,
-        photo:(p.photos&&p.photos[0]&&p.photos[0].name)||''
+        photo:(p.photos&&p.photos[0]&&p.photos[0].name)||'',
+        hours:(p.regularOpeningHours&&p.regularOpeningHours.weekdayDescriptions)||null // 每週營業時間（中文）
       };
     });
   }catch(e){ return null; }
@@ -1410,6 +1434,8 @@ function geoPick(i){
   _geoPicked={lat:r.lat,lon:r.lon};
   _geoKind=r.kind||'';
   _geoPhoto=r.photo||'';
+  _geoHours=r.hours||null;
+  $('hoursHint').style.display=_geoHours?'block':'none';
   $('geoResults').classList.remove('open');
   toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此資料源無電話，可手動補填）✅');
   transitSearch(false); // 背景自動找最近車站帶入大眾運輸指引
@@ -1588,7 +1614,8 @@ function pickBlog(i){ pickBlogSilent(i); toast('已帶入遊記連結 📖'); }
 function clearBlog(){ _blogPicked=null; $('blogField').style.display='none'; }
 let editingId=null;
 function openItem(id){
-  editingId=id||null; _geoPicked=null; _geoKind=''; _geoPhoto=''; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo=''; _attachments=[];
+  editingId=id||null; _geoPicked=null; _geoKind=''; _geoPhoto=''; _geoHours=null; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo=''; _attachments=[];
+  $('hoursHint').style.display='none';
   $('geoResults').classList.remove('open'); $('geoResults').innerHTML='';
   $('flightInfoHint').style.display='none'; $('flightInfoHint').textContent='';
   clearBlog();
@@ -1605,6 +1632,7 @@ function openItem(id){
     _flightInfo=x.flightInfo||'';
     if(_flightInfo){ $('flightInfoHint').style.display='block'; $('flightInfoHint').textContent='✈️ '+_flightInfo; }
     if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
+    _geoHours=x.hours||null; $('hoursHint').style.display=_geoHours?'block':'none';
     _geoKind=x.kind||''; _geoPhoto=x.photo||'';
     _attachments=[...(x.files||[])];
     if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
@@ -1628,7 +1656,7 @@ function saveItem(){
               flight:flightNo,flightInfo:flightNo?_flightInfo:'',
               dep:flightNo?$('fDep').value:'',arr:flightNo?$('fArr').value:'',
               lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:'',
-              kind:_geoKind||'',photo:_geoPhoto||'',files:[..._attachments],
+              kind:_geoKind||'',photo:_geoPhoto||'',hours:_geoHours||null,files:[..._attachments],
               blogTitle:_blogPicked?_blogPicked.title:'',blogUrl:_blogPicked?_blogPicked.url:''};
   if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
   else{ T().items.push({id:uid(),...data}); }
@@ -1649,6 +1677,7 @@ function copyItem(id){ // 複製行程項目：開新增視窗預填全部內容
   $('fDep').value=x.dep||''; $('fArr').value=x.arr||''; $('fNote').value=x.note||'';
   _geoPicked=(x.lat&&x.lon)?{lat:x.lat,lon:x.lon}:null;
   _geoKind=x.kind||''; _geoPhoto=x.photo||''; _flightInfo=x.flightInfo||'';
+  _geoHours=x.hours||null; $('hoursHint').style.display=_geoHours?'block':'none';
   _attachments=[...(x.files||[])]; renderAttachments();
   if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
     $('blogField').style.display='block'; $('blogChipText').textContent=_blogPicked.title; }
@@ -2351,7 +2380,7 @@ async function recSearch(label,query){
     // 依「評分 × log(評論數)」排序 = 當下最火紅
     _recResults=list.map(p=>({
       title:p.name,loc:p.display_name,phone:p.extratags.phone,
-      lat:p.lat,lon:p.lon,rating:p.rating,count:p.count,kind:p.kind||''
+      lat:p.lat,lon:p.lon,rating:p.rating,count:p.count,kind:p.kind||'',hours:p.hours||null,photo:p.photo||''
     })).sort((a,b)=>(b.rating*Math.log10(b.count+1))-(a.rating*Math.log10(a.count+1)));
     $('recList').innerHTML=_recResults.map((p,i)=>
       recRow(p.title,`⭐ ${p.rating}（${p.count.toLocaleString()} 則評論）<br>${esc(p.loc)}`,i)).join('');
@@ -2362,7 +2391,7 @@ function recAdd(i){
   const day=recTargetDay();
   T().items.push({id:uid(),day,time:'',title:p.title,loc:p.loc,phone:p.phone,
     transit:'',note:p.reason||'',flight:'',flightInfo:'',dep:'',arr:'',
-    lat:p.lat||'',lon:p.lon||'',kind:p.kind||'',photo:p.photo||'',blogTitle:'',blogUrl:''});
+    lat:p.lat||'',lon:p.lon||'',kind:p.kind||'',photo:p.photo||'',hours:p.hours||null,blogTitle:'',blogUrl:''});
   curDay=day;
   save(); renderPlan(); renderStats();
   toast(`已加入 Day ${day}：${p.title} ✅`);
@@ -2682,6 +2711,7 @@ async function exportPDF(){
           <div class="bk-title">${esc(x.title)}</div>
           ${x.loc?`<div class="bk-meta">📍 ${esc(x.loc)}</div>`:''}
           ${x.phone?`<div class="bk-meta">📞 ${esc(x.phone)}</div>`:''}
+          ${(x.hours&&x.hours.length)?`<div class="bk-meta">🕐 ${esc(hoursLineFor(x))}</div>`:''}
           ${x.mapcode?`<div class="bk-meta">🚗 MapCode ${esc(x.mapcode)}</div>`:''}
           ${x.flight?`<div class="bk-meta">✈️ ${esc(x.flight)}${x.flightInfo?'｜'+esc(x.flightInfo):''}${x.dep?`｜🛫 ${esc(x.dep)}${x.arr?' → 🛬 '+esc(x.arr):''}`:''}</div>`:''}
           ${x.transit?`<div class="bk-transit">🚇 ${esc(x.transit)}</div>`:''}
