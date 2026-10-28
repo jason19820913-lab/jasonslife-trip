@@ -464,7 +464,7 @@ footer{text-align:center;color:#b3ac9c;font-size:.78rem;padding:20px;font-family
     </div>
     <div class="field"><label>地址（用於導航）</label><input id="fLoc" placeholder="可自動帶入或手動輸入"></div>
     <div class="field"><label>電話</label><input id="fPhone" placeholder="可自動帶入或手動輸入" type="tel"></div>
-    <div class="muted" id="hoursHint" style="display:none;font-size:.82rem;margin:-6px 0 10px">🕐 已帶入營業時間，行程卡片會顯示當天時段</div>
+    <div class="field"><label>🕐 營業時間</label><textarea id="fHours" rows="3" placeholder="搜尋帶入景點/餐廳時自動抓取整週時段，也可手動輸入（一行一天）"></textarea></div>
     <div class="field geo-row"><label>🚗 MapCode（日本租車導航用）</label>
       <input id="fMapcode" placeholder="日本景點選定後自動查詢，也可手動輸入">
       <button type="button" class="geo-btn" onclick="mapcodeSearch(true)">🚗 查詢</button>
@@ -1289,7 +1289,7 @@ async function uploadAttachment(input){
 }
 
 /* ── 地點搜尋（OpenStreetMap Nominatim）＋ 部落格文章比對 ── */
-let _geoResults=[], _geoPicked=null, _geoKind='', _geoPhoto='', _geoHours=null, _blogResults=[], _blogPicked=null;
+let _geoResults=[], _geoPicked=null, _geoKind='', _geoPhoto='', _blogResults=[], _blogPicked=null;
 /* ── 營業時間：依該行程天的星期幾挑出對應時段 ── */
 function dayDateObj(dd){
   const s=T().trip.start; if(!s) return null;
@@ -1434,8 +1434,7 @@ function geoPick(i){
   _geoPicked={lat:r.lat,lon:r.lon};
   _geoKind=r.kind||'';
   _geoPhoto=r.photo||'';
-  _geoHours=r.hours||null;
-  $('hoursHint').style.display=_geoHours?'block':'none';
+  if(r.hours&&r.hours.length) $('fHours').value=r.hours.join('\n'); // 營業時間自動帶入（可再手動修改）
   $('geoResults').classList.remove('open');
   toast(phone?'已帶入地址與電話 ✅':'已帶入地址（此資料源無電話，可手動補填）✅');
   transitSearch(false); // 背景自動找最近車站帶入大眾運輸指引
@@ -1614,8 +1613,7 @@ function pickBlog(i){ pickBlogSilent(i); toast('已帶入遊記連結 📖'); }
 function clearBlog(){ _blogPicked=null; $('blogField').style.display='none'; }
 let editingId=null;
 function openItem(id){
-  editingId=id||null; _geoPicked=null; _geoKind=''; _geoPhoto=''; _geoHours=null; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo=''; _attachments=[];
-  $('hoursHint').style.display='none';
+  editingId=id||null; _geoPicked=null; _geoKind=''; _geoPhoto=''; _geoResults=[]; _blogResults=[]; _blogPicked=null; _flightInfo=''; _attachments=[];
   $('geoResults').classList.remove('open'); $('geoResults').innerHTML='';
   $('flightInfoHint').style.display='none'; $('flightInfoHint').textContent='';
   clearBlog();
@@ -1632,7 +1630,7 @@ function openItem(id){
     _flightInfo=x.flightInfo||'';
     if(_flightInfo){ $('flightInfoHint').style.display='block'; $('flightInfoHint').textContent='✈️ '+_flightInfo; }
     if(x.lat&&x.lon) _geoPicked={lat:x.lat,lon:x.lon};
-    _geoHours=x.hours||null; $('hoursHint').style.display=_geoHours?'block':'none';
+    $('fHours').value=(x.hours||[]).join('\n');
     _geoKind=x.kind||''; _geoPhoto=x.photo||'';
     _attachments=[...(x.files||[])];
     if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
@@ -1640,7 +1638,7 @@ function openItem(id){
   }else{
     $('itemModalTitle').textContent='新增行程';
     $('fDay').value=curDay; $('fTime').value='09:00';
-    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fMapcode').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fDep').value=''; $('fArr').value=''; $('fNote').value='';
+    $('fTitle').value=''; $('fLoc').value=''; $('fPhone').value=''; $('fMapcode').value=''; $('fHours').value=''; $('fTransit').value=''; $('fFlight').value=''; $('fDep').value=''; $('fArr').value=''; $('fNote').value='';
   }
   renderAttachments();
   $('itemModal').classList.add('open');
@@ -1656,7 +1654,9 @@ function saveItem(){
               flight:flightNo,flightInfo:flightNo?_flightInfo:'',
               dep:flightNo?$('fDep').value:'',arr:flightNo?$('fArr').value:'',
               lat:_geoPicked?_geoPicked.lat:'',lon:_geoPicked?_geoPicked.lon:'',
-              kind:_geoKind||'',photo:_geoPhoto||'',hours:_geoHours||null,files:[..._attachments],
+              kind:_geoKind||'',photo:_geoPhoto||'',
+              hours:$('fHours').value.trim()? $('fHours').value.trim().split('\n').map(s=>s.trim()).filter(Boolean) : null,
+              files:[..._attachments],
               blogTitle:_blogPicked?_blogPicked.title:'',blogUrl:_blogPicked?_blogPicked.url:''};
   if(editingId){ Object.assign(T().items.find(i=>i.id===editingId),data); }
   else{ T().items.push({id:uid(),...data}); }
@@ -1677,7 +1677,7 @@ function copyItem(id){ // 複製行程項目：開新增視窗預填全部內容
   $('fDep').value=x.dep||''; $('fArr').value=x.arr||''; $('fNote').value=x.note||'';
   _geoPicked=(x.lat&&x.lon)?{lat:x.lat,lon:x.lon}:null;
   _geoKind=x.kind||''; _geoPhoto=x.photo||''; _flightInfo=x.flightInfo||'';
-  _geoHours=x.hours||null; $('hoursHint').style.display=_geoHours?'block':'none';
+  $('fHours').value=(x.hours||[]).join('\n');
   _attachments=[...(x.files||[])]; renderAttachments();
   if(x.blogUrl){ _blogPicked={title:x.blogTitle||'我的遊記',url:x.blogUrl};
     $('blogField').style.display='block'; $('blogChipText').textContent=_blogPicked.title; }
